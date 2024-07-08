@@ -1,3 +1,185 @@
 [build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sly"
+dynamic = ["version"]
+description = "SLY - Sly Lex Yacc"
+readme = "README.rst"
+license = "BSD-3-Clause"
+authors = [{ name = "David Beazley", email = "dave@dabeaz.com" }]
+maintainers = [
+    { name = "Sachaa-Thanasius", email = "111999343+Sachaa-Thanasius@users.noreply.github.com" },
+]
+classifiers = [
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: BSD License",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/Sachaa-Thanasius/sly"
+
+[tool.hatch.version]
+path = "src/sly/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sly"]
+
+
+# ---- Testing config
+
+[[tool.hatch.envs.hatch-test.matrix]]
+python = ["3.9", "3.10", "3.11", "3.12"]
+
+[tool.hatch.envs.hatch-test]
+extra-dependencies = ["covdefaults"]
+
+[tool.coverage.run]
+plugins = ["covdefaults"]
+source = ["sly", "tests"]
+
+[tool.coverage.paths]
+sly = ["src"]
+tests = ["tests"]
+
+
+# ---- Linting config
+
+[tool.ruff]
+include = ["src/sly/*.py"]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = [
+    "F",
+    "E",
+    "I",
+    "UP",
+    "YTT",
+    "ANN",
+    "S",
+    "BLE",
+    "B",
+    "A",
+    "COM",
+    "C4",
+    "DTZ",
+    "EM",
+    "ISC",
+    "G",
+    "INP",
+    "PIE",
+    "T20",
+    "PYI",
+    "PT",
+    "RSE",
+    "RET",
+    "SIM",
+    "TID",
+    "PTH",
+    "ERA",
+    "PL",
+    "TRY",
+    "RUF",
+]
+extend-ignore = [
+    "S101",   # Use of assert here is a known quantity for typing cases.
+    "SIM105", # Suppressable exception. contextlib.suppress is a stylistic choice with overhead.
+    "C90",    # McCabe complexity.
+    "PD011",  # Erroneous issue that triggers for any .values attribute access at all.
+    "S311",   # No need for cryptographically secure random number generation in this use case.
+    "ANN101", # Type of Self for self is usually implicit and/or known by the type-checker.
+    "ANN102", # Type of type[Self] for cls is usually implicit and/or known by the type-checker.
+    "ANN204", # Special method return types are usually implicit and/or known by type checker.
+    "ANN401", # Any is needed for some parameters.
+    "UP038",  # isinstance performs better with tuples than unions.
+    "PT001",  # pytest recommends against empty parentheses on pytest.fixture.
+    "PYI036", # Bug with annotations for __exit__.
+    "PLR",    # Complexity things.
+    # Recommended by Ruff when using Ruff format.
+    "E111",
+    "E114",
+    "E117",
+    "COM812",
+    "COM819",
+    "E501",
+    "ISC001",
+    "ISC002",
+    # -- Project-specific rules.
+    "PYI021", # Allow docstrings within type stubs; needed to document sly.types.
+    # For strings in exception calls.
+    "TRY003",
+    "EM101",
+    "EM102",
+    "SIM108", # Readability: Don't always shorten to ternary.
+    # Readability: Allow else and elif after return, raise, and continue.
+    "RET505",
+    "RET506",
+    "RET507",
+    "ERA001", # Leave commented code alone.
+    "RUF002", # Leave my en dashes alone.
+]
+unfixable = [
+    "ERA", # Prevent unlikely erroneous deletion.
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = [
+    # Ruff doesn't understand using star imports to export names in a package.
+    "F403",
+    "F405",
+]
+"src/sly/yacc.py" = [
+    "E741", # Ambiguous names? No, math variable names.
+]
+"tests/*.py" = [
+    "RUF012", # Mutable class attributes.
+    "F811",   # Redefining methods within Lexer/Parser subclasses is allowed because of metaclass hackery.
+    "F821",   # Undefined names within Lexer/Parser subclasses are allowed because of metaclass hackery.
+    "T201",   # Allow printing.
+    "ANN201", # Allow lack of return annotations for public functions. Tests return None usually.
+]
+"example/**/*.py" = [
+    # Refer to comments in the tests/*.py entry.
+    "RUF012",
+    "F811",
+    "F821",
+    "T201",
+    "ANN201",
+    "ANN001", # Ignore missing parameter annotations as well.
+    "INP001", # Implicit namespace packages.
+]
+
+[tool.ruff.lint.pyupgrade]
+keep-runtime-typing = true
+
+
+# ---- Type-checking config
+
+[tool.pyright]
+include = ["src/sly"]
+ignore = ["example", "tests"]
+pythonVersion = "3.9"
+pythonPlatform = "All"
+typeCheckingMode = "strict"
+
+defineConstant = { TYPING = true }
+
+reportPrivateUsage = "none"
+reportUnnecessaryIsInstance = "information"     # Account for incorrect input from users.
+reportCallInDefaultInitializer = "warning"
+reportImplicitOverride = "warning"
+reportImportCycles = "error"
+reportPropertyTypeMismatch = "error"
+reportShadowedImports = "error"
+reportUninitializedInstanceVariable = "warning"
+reportUnnecessaryTypeIgnoreComment = "warning"

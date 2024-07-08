@@ -1,34 +1,31 @@
-# wasm.py
-#
-# Experimental builder for Wasm binary encoding. Use at your own peril.
-#
+"""wasm.py: Experimental builder for Wasm binary encoding. Use at your own peril."""
 # Author: David Beazley (@dabeaz)
 # Copyright (C) 2019
 # http://www.dabeaz.com
 
-import struct
 import enum
-from collections import defaultdict
 import json
+import struct
+from collections import defaultdict
 
-def encode_unsigned(value):
-    '''
-    Produce an LEB128 encoded unsigned integer.
-    '''
-    parts = []
+
+def encode_unsigned(value) -> bytes:
+    """Produce an LEB128 encoded unsigned integer."""
+
+    parts: list[int] = []
     while value:
-        parts.append((value & 0x7f) | 0x80)
+        parts.append((value & 0x7F) | 0x80)
         value >>= 7
     if not parts:
         parts.append(0)
-    parts[-1] &= 0x7f
+    parts[-1] &= 0x7F
     return bytes(parts)
 
-def encode_signed(value):
-    '''
-    Produce a LEB128 encoded signed integer.
-    '''
-    parts = [ ]
+
+def encode_signed(value) -> bytes:
+    """Produce a LEB128 encoded signed integer."""
+
+    parts: list[int] = []
     if value < 0:
         # Sign extend the value up to a multiple of 7 bits
         value = (1 << (value.bit_length() + (7 - value.bit_length() % 7))) + value
@@ -36,45 +33,51 @@ def encode_signed(value):
     else:
         negative = False
     while value:
-        parts.append((value & 0x7f) | 0x80)
+        parts.append((value & 0x7F) | 0x80)
         value >>= 7
     if not parts or (not negative and parts[-1] & 0x40):
         parts.append(0)
-    parts[-1] &= 0x7f
+    parts[-1] &= 0x7F
     return bytes(parts)
 
-assert encode_unsigned(624485) == bytes([0xe5, 0x8e, 0x26])
-assert encode_unsigned(127) == bytes([0x7f])
-assert encode_signed(-624485) == bytes([0x9b, 0xf1, 0x59])
-assert encode_signed(127) == bytes([0xff, 0x00])
 
-def encode_f64(value):
-    '''
+assert encode_unsigned(624485) == bytes([0xE5, 0x8E, 0x26])
+assert encode_unsigned(127) == bytes([0x7F])
+assert encode_signed(-624485) == bytes([0x9B, 0xF1, 0x59])
+assert encode_signed(127) == bytes([0xFF, 0x00])
+
+
+def encode_f64(value) -> bytes:
+    """
     Encode a 64-bit floating point as little endian
-    '''
-    return struct.pack('<d', value)
+    """
+    return struct.pack("<d", value)
 
-def encode_f32(value):
-    '''
+
+def encode_f32(value) -> bytes:
+    """
     Encode a 32-bit floating point as little endian.
-    '''
-    return struct.pack('<f', value)
+    """
+    return struct.pack("<f", value)
+
 
 def encode_name(value):
-    '''
+    """
     Encode a name as UTF-8
-    '''
-    data = value.encode('utf-8')
+    """
+    data = value.encode("utf-8")
     return encode_vector(data)
 
+
 def encode_vector(items):
-    '''
+    """
     Items is a list of encoded value or bytess
-    '''
+    """
     if isinstance(items, bytes):
         return encode_unsigned(len(items)) + items
     else:
-        return encode_unsigned(len(items)) + b''.join(items)
+        return encode_unsigned(len(items)) + b"".join(items)
+
 
 # ------------------------------------------------------------
 # Instruction encoding enums.
@@ -83,11 +86,12 @@ def encode_vector(items):
 # names are used in various places (specifying functions, globals,
 # etc.).  However, the type names are also used as a namespace for
 # type-specific instructions such as i32.add.  We're going to use
-# Python enums to set up this arrangement in a clever way that 
+# Python enums to set up this arrangement in a clever way that
 # makes it possible to do both of these tasks.
 
 # Metaclass for instruction encoding categories. The class itself
 # can be used as an integer when encoding instructions.
+
 
 class HexEnumMeta(enum.EnumMeta):
     def __int__(cls):
@@ -99,212 +103,224 @@ class HexEnumMeta(enum.EnumMeta):
         return cls.__name__
 
     @classmethod
-    def __prepare__(meta, name, bases, encoding=0):
+    def __prepare__(meta, name, bases, *, encoding=0):
         return super().__prepare__(name, bases)
 
     @staticmethod
-    def __new__(meta, clsname, bases, methods, encoding=0):
+    def __new__(meta, clsname, bases, methods, *, encoding=0):
         cls = super().__new__(meta, clsname, bases, methods)
         cls._encoding = encoding
         return cls
 
+
 class HexEnum(enum.IntEnum):
     def __repr__(self):
-        return f'<{self!s}: 0x{self:x}>'
+        return f"<{self!s}: 0x{self:x}>"
+
 
 HexEnum.__class__ = HexEnumMeta
 
-class i32(HexEnum, encoding=0x7f):
-    eqz             = 0x45
-    eq              = 0x46
-    ne              = 0x47
-    lt_s            = 0x48
-    lt_u            = 0x49
-    gt_s            = 0x4a
-    gt_u            = 0x4b
-    le_s            = 0x4c
-    le_u            = 0x4d
-    ge_s            = 0x4e
-    ge_u            = 0x4f
-    clz             = 0x67
-    ctz             = 0x68
-    popcnt          = 0x69
-    add             = 0x6a
-    sub             = 0x6b
-    mul             = 0x6c
-    div_s           = 0x6d
-    div_u           = 0x6e
-    rem_s           = 0x6f
-    rem_u           = 0x70
-    and_            = 0x71
-    or_             = 0x72
-    xor             = 0x73
-    shl             = 0x74
-    shr_s           = 0x75
-    shr_u           = 0x76
-    rotl            = 0x77
-    rotr            = 0x78
-    wrap_i64        = 0xa7
-    trunc_f32_s     = 0xa8
-    trunc_f32_u     = 0xa9
-    trunc_f64_s     = 0xaa
-    trunc_f64_u     = 0xab
-    reinterpret_f32 = 0xbc
-    load            = 0x28
-    load8_s         = 0x2c
-    load8_u         = 0x2d
-    load16_s        = 0x2e
-    load16_u        = 0x2f
-    store           = 0x36
-    store8          = 0x3a
-    store16         = 0x3b
-    const           = 0x41
 
-class i64(HexEnum, encoding=0x7e):
-    eqz             = 0x50
-    eq              = 0x51
-    ne              = 0x52
-    lt_s            = 0x53
-    lt_u            = 0x54
-    gt_s            = 0x55
-    gt_u            = 0x56
-    le_s            = 0x57
-    le_u            = 0x58
-    ge_s            = 0x59
-    ge_u            = 0x5a
-    clz             = 0x79
-    ctz             = 0x7a
-    popcnt          = 0x7b
-    add             = 0x7c
-    sub             = 0x7d
-    mul             = 0x7e
-    div_s           = 0x7f
-    div_u           = 0x80
-    rem_s           = 0x81
-    rem_u           = 0x82
-    and_            = 0x83
-    or_             = 0x84
-    xor             = 0x85
-    shl             = 0x86
-    shr_s           = 0x87
-    shr_u           = 0x88
-    rotl            = 0x89
-    rotr            = 0x8a
-    extend_i32_s    = 0xac
-    extend_i32_u    = 0xad
-    trunc_f32_s     = 0xae
-    trunc_f32_u     = 0xaf
-    trunc_f64_s     = 0xb0
-    trunc_f64_u     = 0xb1
-    reinterpret_f64 = 0xbd
-    load            = 0x29
-    load8_s         = 0x30
-    load8_u         = 0x31
-    load16_s        = 0x32
-    load16_u        = 0x33
-    load32_s        = 0x34
-    load32_u        = 0x35
-    store           = 0x37
-    store8          = 0x3c
-    store16         = 0x3d
-    store32         = 0x3e
-    const           = 0x42
+class i32(HexEnum, encoding=0x7F):
+    eqz = 0x45
+    eq = 0x46
+    ne = 0x47
+    lt_s = 0x48
+    lt_u = 0x49
+    gt_s = 0x4A
+    gt_u = 0x4B
+    le_s = 0x4C
+    le_u = 0x4D
+    ge_s = 0x4E
+    ge_u = 0x4F
+    clz = 0x67
+    ctz = 0x68
+    popcnt = 0x69
+    add = 0x6A
+    sub = 0x6B
+    mul = 0x6C
+    div_s = 0x6D
+    div_u = 0x6E
+    rem_s = 0x6F
+    rem_u = 0x70
+    and_ = 0x71
+    or_ = 0x72
+    xor = 0x73
+    shl = 0x74
+    shr_s = 0x75
+    shr_u = 0x76
+    rotl = 0x77
+    rotr = 0x78
+    wrap_i64 = 0xA7
+    trunc_f32_s = 0xA8
+    trunc_f32_u = 0xA9
+    trunc_f64_s = 0xAA
+    trunc_f64_u = 0xAB
+    reinterpret_f32 = 0xBC
+    load = 0x28
+    load8_s = 0x2C
+    load8_u = 0x2D
+    load16_s = 0x2E
+    load16_u = 0x2F
+    store = 0x36
+    store8 = 0x3A
+    store16 = 0x3B
+    const = 0x41
 
-class f32(HexEnum, encoding=0x7d):
-    eq              = 0x5b
-    ne              = 0x5c
-    lt              = 0x5d
-    gt              = 0x5e
-    le              = 0x5f
-    ge              = 0x60
-    abs             = 0x8b
-    neg             = 0x8c
-    ceil            = 0x8d
-    floor           = 0x8e
-    trunc           = 0x8f
-    nearest         = 0x90
-    sqrt            = 0x91
-    add             = 0x92
-    sub             = 0x93
-    mul             = 0x94
-    div             = 0x95
-    min             = 0x96
-    max             = 0x97
-    copysign        = 0x98
-    convert_i32_s   = 0xb2
-    convert_i32_u   = 0xb3
-    convert_i64_s   = 0xb4
-    convert_i64_u   = 0xb5
-    demote_f64      = 0xb6
-    reinterpret_i32 = 0xbe
-    load            = 0x2a
-    store           = 0x38
-    const           = 0x43
 
-class f64(HexEnum, encoding=0x7c):
-    eq              = 0x61
-    ne              = 0x62
-    lt              = 0x63
-    gt              = 0x64
-    le              = 0x65
-    ge              = 0x66
-    abs             = 0x99
-    neg             = 0x9a
-    ceil            = 0x9b
-    floor           = 0x9c
-    trunc           = 0x9d
-    nearest         = 0x9e
-    sqrt            = 0x9f
-    add             = 0xa0
-    sub             = 0xa1
-    mul             = 0xa2
-    div             = 0xa3
-    min             = 0xa4
-    max             = 0xa5
-    copysign        = 0xa6
-    convert_i32_s   = 0xb7
-    convert_i32_u   = 0xb8
-    convert_i64_s   = 0xb9
-    convert_i64_u   = 0xba
-    promote_f32     = 0xbb
-    reinterpret_i64 = 0xbf
-    load            = 0x2b
-    store           = 0x39
-    const           = 0x44
+class i64(HexEnum, encoding=0x7E):
+    eqz = 0x50
+    eq = 0x51
+    ne = 0x52
+    lt_s = 0x53
+    lt_u = 0x54
+    gt_s = 0x55
+    gt_u = 0x56
+    le_s = 0x57
+    le_u = 0x58
+    ge_s = 0x59
+    ge_u = 0x5A
+    clz = 0x79
+    ctz = 0x7A
+    popcnt = 0x7B
+    add = 0x7C
+    sub = 0x7D
+    mul = 0x7E
+    div_s = 0x7F
+    div_u = 0x80
+    rem_s = 0x81
+    rem_u = 0x82
+    and_ = 0x83
+    or_ = 0x84
+    xor = 0x85
+    shl = 0x86
+    shr_s = 0x87
+    shr_u = 0x88
+    rotl = 0x89
+    rotr = 0x8A
+    extend_i32_s = 0xAC
+    extend_i32_u = 0xAD
+    trunc_f32_s = 0xAE
+    trunc_f32_u = 0xAF
+    trunc_f64_s = 0xB0
+    trunc_f64_u = 0xB1
+    reinterpret_f64 = 0xBD
+    load = 0x29
+    load8_s = 0x30
+    load8_u = 0x31
+    load16_s = 0x32
+    load16_u = 0x33
+    load32_s = 0x34
+    load32_u = 0x35
+    store = 0x37
+    store8 = 0x3C
+    store16 = 0x3D
+    store32 = 0x3E
+    const = 0x42
+
+
+class f32(HexEnum, encoding=0x7D):
+    eq = 0x5B
+    ne = 0x5C
+    lt = 0x5D
+    gt = 0x5E
+    le = 0x5F
+    ge = 0x60
+    abs = 0x8B
+    neg = 0x8C
+    ceil = 0x8D
+    floor = 0x8E
+    trunc = 0x8F
+    nearest = 0x90
+    sqrt = 0x91
+    add = 0x92
+    sub = 0x93
+    mul = 0x94
+    div = 0x95
+    min = 0x96
+    max = 0x97
+    copysign = 0x98
+    convert_i32_s = 0xB2
+    convert_i32_u = 0xB3
+    convert_i64_s = 0xB4
+    convert_i64_u = 0xB5
+    demote_f64 = 0xB6
+    reinterpret_i32 = 0xBE
+    load = 0x2A
+    store = 0x38
+    const = 0x43
+
+
+class f64(HexEnum, encoding=0x7C):
+    eq = 0x61
+    ne = 0x62
+    lt = 0x63
+    gt = 0x64
+    le = 0x65
+    ge = 0x66
+    abs = 0x99
+    neg = 0x9A
+    ceil = 0x9B
+    floor = 0x9C
+    trunc = 0x9D
+    nearest = 0x9E
+    sqrt = 0x9F
+    add = 0xA0
+    sub = 0xA1
+    mul = 0xA2
+    div = 0xA3
+    min = 0xA4
+    max = 0xA5
+    copysign = 0xA6
+    convert_i32_s = 0xB7
+    convert_i32_u = 0xB8
+    convert_i64_s = 0xB9
+    convert_i64_u = 0xBA
+    promote_f32 = 0xBB
+    reinterpret_i64 = 0xBF
+    load = 0x2B
+    store = 0x39
+    const = 0x44
+
 
 class local(HexEnum):
     get = 0x20
     set = 0x21
     tee = 0x22
 
+
 class global_(HexEnum):
     get = 0x23
     set = 0x24
 
-global_.__name__ = 'global'
+
+global_.__name__ = "global"
 
 # Special void type for block returns
 void = 0x40
 
+
 # ------------------------------------------------------------
 def encode_function_type(parameters, results):
-    '''
+    """
     parameters is a vector of value types
     results is a vector value types
-    '''
+    """
     enc_parms = bytes(parameters)
     enc_results = bytes(results)
-    return b'\x60' + encode_vector(enc_parms) + encode_vector(enc_results)
+    return b"\x60" + encode_vector(enc_parms) + encode_vector(enc_results)
 
 
 def encode_limits(min, max=None):
     if max is None:
-        return b'\x00' + encode_unsigned(min)
+        return b"\x00" + encode_unsigned(min)
     else:
-        return b'\x01' + encode_unsigned(min) + encode_unsigned(max)
+        return b"\x01" + encode_unsigned(min) + encode_unsigned(max)
+
 
 def encode_table_type(elemtype, min, max=None):
-    return b'\x70' + encode_limits(min, max)
+    return b"\x70" + encode_limits(min, max)
+
 
 def encode_global_type(value_type, mut=True):
     return bytes([value_type, mut])
@@ -314,7 +330,7 @@ def encode_global_type(value_type, mut=True):
 # Instruction builders
 #
 # Wasm instructions are grouped into different namespaces.  For example:
-#   
+#
 #     i32.add()
 #     local.get()
 #     memory.size()
@@ -325,12 +341,14 @@ def encode_global_type(value_type, mut=True):
 
 # Builder for the local.* namespace
 
+
 class SubBuilder:
     def __init__(self, builder):
         self._builder = builder
 
     def _append(self, instr):
         self._builder._code.append(instr)
+
 
 class LocalBuilder(SubBuilder):
     def get(self, localidx):
@@ -341,6 +359,7 @@ class LocalBuilder(SubBuilder):
 
     def tee(self, localidx):
         self._append([local.tee, *encode_unsigned(localidx)])
+
 
 class GlobalBuilder(SubBuilder):
     def get(self, glob):
@@ -357,15 +376,17 @@ class GlobalBuilder(SubBuilder):
             globidx = glob.idx
         self._append([global_.set, *encode_unsigned(globidx)])
 
+
 class MemoryBuilder(SubBuilder):
     def size(self):
-        self._append([0x3f, 0x00])
+        self._append([0x3F, 0x00])
 
     def grow(self):
         self._append([0x40, 0x00])
 
+
 class OpBuilder(SubBuilder):
-    _optable = None       # To be supplied by subclasses
+    _optable = None  # To be supplied by subclasses
 
     # Memory ops
     def load(self, align, offset):
@@ -404,7 +425,9 @@ class OpBuilder(SubBuilder):
     def __getattr__(self, key):
         def call():
             self._append([getattr(self._optable, key)])
+
         return call
+
 
 class I32OpBuilder(OpBuilder):
     _optable = i32
@@ -412,11 +435,13 @@ class I32OpBuilder(OpBuilder):
     def const(self, value):
         self._append([self._optable.const, *encode_signed(value)])
 
+
 class I64OpBuilder(OpBuilder):
     _optable = i64
 
     def const(self, value):
         self._append([self._optable.const, *encode_signed(value)])
+
 
 class F32OpBuilder(OpBuilder):
     _optable = f32
@@ -424,11 +449,13 @@ class F32OpBuilder(OpBuilder):
     def const(self, value):
         self._append([self._optable.const, *encode_f32(value)])
 
+
 class F64OpBuilder(OpBuilder):
     _optable = f64
 
     def const(self, value):
         self._append([self._optable.const, *encode_f64(value)])
+
 
 def _flatten(instr):
     for x in instr:
@@ -437,10 +464,11 @@ def _flatten(instr):
         else:
             yield x
 
-# High-level class that allows instructions to be easily encoded. 
+
+# High-level class that allows instructions to be easily encoded.
 class InstructionBuilder:
     def __init__(self):
-        self._code = [ ]
+        self._code = []
         self.local = LocalBuilder(self)
         self.global_ = GlobalBuilder(self)
         self.i32 = I32OpBuilder(self)
@@ -448,8 +476,8 @@ class InstructionBuilder:
         self.f32 = F32OpBuilder(self)
         self.f64 = F64OpBuilder(self)
 
-        # Control-flow stack.  
-        self._control = [ None ]
+        # Control-flow stack.
+        self._control = [None]
 
     def __iter__(self):
         return iter(self._code)
@@ -474,9 +502,9 @@ class InstructionBuilder:
         return len(self._control)
 
     def block_end(self):
-        self._code.append([0x0b])
+        self._code.append([0x0B])
         self._control.pop()
-        
+
     def loop_start(self, result_type, label=None):
         self._code.append([0x03, result_type])
         self._control.append(label)
@@ -485,27 +513,27 @@ class InstructionBuilder:
     def if_start(self, result_type, label=None):
         self._code.append([0x04, result_type])
         self._control.append(label)
-        
+
     def else_start(self):
         self._code.append([0x05])
 
     def br(self, label):
         labelidx = self._resolve_label(label)
-        self._code.append([0x0c, *encode_unsigned(labelidx)])
+        self._code.append([0x0C, *encode_unsigned(labelidx)])
 
     def br_if(self, label):
         labelidx = self._resolve_label(label)
-        self._code.append([0x0d, *encode_unsigned(labelidx)])
+        self._code.append([0x0D, *encode_unsigned(labelidx)])
 
     def br_table(self, labels, label):
         enc_labels = [encode_unsigned(self._resolve_label(idx)) for idx in labels]
-        self._code.append([0x0e, *encode_vector(enc_labels), *encode_unsigned(self._resolve_label(label))])
+        self._code.append([0x0E, *encode_vector(enc_labels), *encode_unsigned(self._resolve_label(label))])
 
     def return_(self):
-        self._code.append([0x0f])
+        self._code.append([0x0F])
 
     def call(self, func):
-        if isinstance(func, (ImportFunction,Function)):
+        if isinstance(func, (ImportFunction, Function)):
             self._code.append([0x10, *encode_unsigned(func._idx)])
         else:
             self._code.append([0x10, *encode_unsigned(func)])
@@ -518,10 +546,10 @@ class InstructionBuilder:
         self._code.append([0x11, *encode_unsigned(typeidx), 0x00])
 
     def drop(self):
-        self._code.append([0x1a])
-    
+        self._code.append([0x1A])
+
     def select(self):
-        self._code.append([0x1b])
+        self._code.append([0x1B])
 
 
 class Type:
@@ -531,7 +559,8 @@ class Type:
         self.idx = idx
 
     def __repr__(self):
-        return f'{self.parms!r} -> {self.results!r}'
+        return f"{self.parms!r} -> {self.results!r}"
+
 
 class ImportFunction:
     def __init__(self, name, typesig, idx):
@@ -540,7 +569,8 @@ class ImportFunction:
         self._idx = idx
 
     def __repr__(self):
-        return f'ImportFunction({self._name}, {self._typesig}, {self._idx})'
+        return f"ImportFunction({self._name}, {self._typesig}, {self._idx})"
+
 
 class Function(InstructionBuilder):
     def __init__(self, name, typesig, idx, export=True):
@@ -552,12 +582,13 @@ class Function(InstructionBuilder):
         self._idx = idx
 
     def __repr__(self):
-        return f'Function({self._name}, {self._typesig}, {self._idx})'
+        return f"Function({self._name}, {self._typesig}, {self._idx})"
 
     # Allocate a new local variable of a given type
     def alloc(self, valuetype):
         self._locals.append(valuetype)
         return len(self.locals) - 1
+
 
 class ImportGlobal:
     def __init__(self, name, valtype, idx):
@@ -566,7 +597,8 @@ class ImportGlobal:
         self.idx = idx
 
     def __repr__(self):
-        return f'ImportGlobal({self.name}, {self.valtype}, {self.idx})'
+        return f"ImportGlobal({self.name}, {self.valtype}, {self.idx})"
+
 
 class Global:
     def __init__(self, name, valtype, initializer, idx):
@@ -576,7 +608,8 @@ class Global:
         self.idx = idx
 
     def __repr__(self):
-        return f'Global({self.name}, {self.valtype}, {self.initializer}, {self.idx})'
+        return f"Global({self.name}, {self.valtype}, {self.initializer}, {self.idx})"
+
 
 class Module:
     def __init__(self):
@@ -593,39 +626,39 @@ class Module:
         # stored in a separate list and is indexed by an integer
         # index starting at 0.   Imported entities must always
         # go before entities defined in the Wasm module itself.
-        self.funcidx = 0                   
-        self.globalidx = 0     
+        self.funcidx = 0
+        self.globalidx = 0
         self.memoryidx = 0
         self.tableidx = 0
 
-        self.function_section = []         # Vector of typeidx
-        self.global_section = []           # Vector of globals
-        self.table_section = []            # Vector of tables
-        self.memory_section = []           # Vector of memories
+        self.function_section = []  # Vector of typeidx
+        self.global_section = []  # Vector of globals
+        self.table_section = []  # Vector of tables
+        self.memory_section = []  # Vector of memories
 
         # Exported entities.  A module may export functions, globals,
         # tables, and memories
-        
-        self.export_section = []           # Vector of exports
+
+        self.export_section = []  # Vector of exports
 
         # Optional start function.  A function that executes upon loading
-        self.start_section = None          # Optional start function
+        self.start_section = None  # Optional start function
 
         # Initialization of table elements
-        self.element_section = []         
+        self.element_section = []
 
-        # Code section for function bodies. 
+        # Code section for function bodies.
         self.code_section = []
 
         # Data section contains data segments
-        self.data_section = []             
+        self.data_section = []
 
         # List of function objects (to help with encoding)
         self.functions = []
 
         # Output for JS/Html
-        self.js_exports = "";
-        self.html_exports = "";
+        self.js_exports = ""
+        self.html_exports = ""
         self.js_imports = defaultdict(dict)
 
     def add_type(self, parms, results):
@@ -638,24 +671,24 @@ class Module:
 
     def import_function(self, module, name, parms, results):
         if len(self.function_section) > 0:
-            raise RuntimeError('function imports must go before first function definition')
+            raise RuntimeError("function imports must go before first function definition")
 
         typesig = self.add_type(parms, results)
-        code = encode_name(module) + encode_name(name) + b'\x00' + encode_unsigned(typesig.idx)
+        code = encode_name(module) + encode_name(name) + b"\x00" + encode_unsigned(typesig.idx)
         self.import_section.append(code)
         self.js_imports[module][name] = f"function: {typesig}"
         self.funcidx += 1
-        return ImportFunction(f'{module}.{name}', typesig, self.funcidx - 1)
+        return ImportFunction(f"{module}.{name}", typesig, self.funcidx - 1)
 
     def import_table(self, module, name, elemtype, min, max=None):
-        code = encode_name(module) + encode_name(name) + b'\x01' + encode_table_type(elemtype, min, max)
+        code = encode_name(module) + encode_name(name) + b"\x01" + encode_table_type(elemtype, min, max)
         self.import_section.append(code)
         self.js_imports[module][name] = "table:"
         self.tableidx += 1
         return self.tableidx - 1
 
     def import_memtype(self, module, name, min, max=None):
-        code = encode_name(module) + encode_name(name) + b'\x02' + encode_limits(min, max)
+        code = encode_name(module) + encode_name(name) + b"\x02" + encode_limits(min, max)
         self.import_section.append(code)
         self.js_imports[module][name] = "memory:"
         self.memoryidx += 1
@@ -663,13 +696,13 @@ class Module:
 
     def import_global(self, module, name, value_type):
         if len(self.global_section) > 0:
-            raise RuntimeError('global imports must go before first global definition')
+            raise RuntimeError("global imports must go before first global definition")
 
-        code = encode_name(module) + encode_name(name) + b'\x03' + encode_global_type(value_type, False)
+        code = encode_name(module) + encode_name(name) + b"\x03" + encode_global_type(value_type, False)
         self.import_section.append(code)
         self.js_imports[module][name] = f"global: {value_type}"
         self.globalidx += 1
-        return ImportGlobal(f'{module}.{name}', value_type, self.globalidx - 1)
+        return ImportGlobal(f"{module}.{name}", value_type, self.globalidx - 1)
 
     def add_function(self, name, parms, results, export=True):
         typesig = self.add_type(parms, results)
@@ -703,21 +736,20 @@ class Module:
         return Global(name, value_type, initializer, self.globalidx - 1)
 
     def export_function(self, name, funcidx):
-        code = encode_name(name) + b'\x00' + encode_unsigned(funcidx)
+        code = encode_name(name) + b"\x00" + encode_unsigned(funcidx)
         self.export_section.append(code)
-        self.js_exports += f'window.{name} = results.instance.exports.{name};\n'
-
+        self.js_exports += f"window.{name} = results.instance.exports.{name};\n"
 
     def export_table(self, name, tableidx):
-        code = encode_name(name) + b'\x01' + encode_unsigned(tableidx)
+        code = encode_name(name) + b"\x01" + encode_unsigned(tableidx)
         self.export_section.append(code)
 
     def export_memory(self, name, memidx):
-        code = encode_name(name) + b'\x02' + encode_unsigned(memidx)
+        code = encode_name(name) + b"\x02" + encode_unsigned(memidx)
         self.export_section.append(code)
 
     def export_global(self, name, globalidx):
-        code = encode_name(name) + b'\x03' + encode_unsigned(globalidx)
+        code = encode_name(name) + b"\x03" + encode_unsigned(globalidx)
         self.export_section.append(code)
 
     def start_function(self, funcidx):
@@ -731,8 +763,8 @@ class Module:
     def add_function_code(self, locals, expr):
         # Locals is a list of valtypes [i32, i32, etc...]
         # expr is an expression representing the actual code (InstructionBuilder)
-        
-        locs = [ encode_unsigned(1) + bytes([loc]) for loc in locals ]
+
+        locs = [encode_unsigned(1) + bytes([loc]) for loc in locals]
         locs_code = encode_vector(locs)
         func_code = locs_code + bytes(_flatten(expr))
         code = encode_unsigned(len(func_code)) + func_code
@@ -740,12 +772,12 @@ class Module:
 
     def add_data(self, memidx, expr, data):
         # data is bytes
-        code = encode_unsigned(memidx) + expr.code + encode_vector([data[i:i+1] for i in range(len(data))])
+        code = encode_unsigned(memidx) + expr.code + encode_vector([data[i : i + 1] for i in range(len(data))])
         self.data_section.append(code)
 
     def _encode_section_vector(self, sectionid, contents):
         if not contents:
-            return b''
+            return b""
         contents_code = encode_vector(contents)
         code = bytes([sectionid]) + encode_unsigned(len(contents_code)) + contents_code
         return code
@@ -757,7 +789,7 @@ class Module:
                 self.export_function(func._name, func._idx)
 
         # Encode the whole module
-        code = b'\x00\x61\x73\x6d\x01\x00\x00\x00'
+        code = b"\x00\x61\x73\x6d\x01\x00\x00\x00"
         code += self._encode_section_vector(1, self.type_section)
         code += self._encode_section_vector(2, self.import_section)
         code += self._encode_section_vector(3, self.function_section)
@@ -773,20 +805,22 @@ class Module:
         return code
 
     def write_wasm(self, modname):
-        with open(f'{modname}.wasm', 'wb') as f:
+        with open(f"{modname}.wasm", "wb") as f:
             f.write(self.encode())
 
     def write_html(self, modname):
-        with open(f'{modname}.html', 'wt') as f:
-            f.write(js_template.format(
+        with open(f"{modname}.html", "w") as f:
+            f.write(
+                js_template.format(
                     module=modname,
                     imports=json.dumps(self.js_imports, indent=4),
                     exports=self.js_exports,
                     exports_html=self.html_exports,
-                    )
+                )
             )
-                    
-js_template = '''
+
+
+js_template = """
 <html>
 <body>
   <script>
@@ -810,12 +844,13 @@ The following exports are made. Access from the JS console.
 {exports_html}
 </body>
 </html>
-'''
+"""
+
 
 def test1():
     mod = Module()
 
-    # An external function import.  Note:  All imports MUST go first.  
+    # An external function import.  Note:  All imports MUST go first.
     # Indexing affects function indexing for functions defined in the module.
 
     # Import some functions from JS
@@ -829,7 +864,7 @@ def test1():
     # FOO = mod.import_global('util', 'FOO', f64)
 
     # A more complicated function
-    dsquared_func = mod.add_function('dsquared', [f64, f64], [f64])
+    dsquared_func = mod.add_function("dsquared", [f64, f64], [f64])
     dsquared_func.local.get(0)
     dsquared_func.local.get(0)
     dsquared_func.f64.mul()
@@ -840,7 +875,7 @@ def test1():
     dsquared_func.block_end()
 
     # A function calling another function
-    distance = mod.add_function('distance', [f64, f64], [f64])
+    distance = mod.add_function("distance", [f64, f64], [f64])
     distance.local.get(0)
     distance.local.get(1)
     distance.call(dsquared_func)
@@ -873,20 +908,19 @@ def test1():
 
     # Memory
     mod.add_memory(1)
-    mod.export_memory('memory', 0)
+    mod.export_memory("memory", 0)
 
-
-    # Function that returns a byte value 
-    getval = mod.add_function('getval', [i32], [i32])
+    # Function that returns a byte value
+    getval = mod.add_function("getval", [i32], [i32])
     getval.local.get(0)
     getval.i32.load8_u(0, 0)
     getval.block_end()
 
     # Function that sets a byte value
-    setval = mod.add_function('setval', [i32,i32], [i32])
-    setval.local.get(0)        # Memory address
-    setval.local.get(1)        # value
-    setval.i32.store8(0,0)
+    setval = mod.add_function("setval", [i32, i32], [i32])
+    setval.local.get(0)  # Memory address
+    setval.local.get(1)  # value
+    setval.i32.store8(0, 0)
     setval.i32.const(1)
     setval.block_end()
     return mod
@@ -895,7 +929,7 @@ def test1():
 def test2():
     mod = Module()
 
-    fact = mod.add_function('fact', [i32], [i32])
+    fact = mod.add_function("fact", [i32], [i32])
     fact.local.get(0)
     fact.i32.const(1)
     fact.i32.lt_s()
@@ -913,30 +947,9 @@ def test2():
 
     return mod
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     mod = test1()
 
-    mod.write_wasm('test')
-    mod.write_html('test')
-
-        
-        
-        
-        
-        
-
-
-        
-    
-
-        
-        
-
-
-
-
-
-
-
-    
-        
+    mod.write_wasm("test")
+    mod.write_html("test")

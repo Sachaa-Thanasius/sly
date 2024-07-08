@@ -1,6 +1,9 @@
 SLY (Sly Lex-Yacc)
 ==================
 
+**Note: This is a fork meant to attempt typing the original package, be more
+up to date, and possibly expand functionality in small ways.
+
 SLY is a 100% Python implementation of the lex and yacc tools
 commonly used to write parsers and compilers.  Parsing is
 based on the same LALR(1) algorithm used by many yacc tools.
