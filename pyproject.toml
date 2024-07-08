@@ -132,7 +132,7 @@ extend-ignore = [
     "RET505",
     "RET506",
     "RET507",
-    "ERA001", # Leave commented code alone.
+    # "ERA001", # Leave commented code alone.
     "RUF002", # Leave my en dashes alone.
     "PYI021", # Allow docstrings within type stubs; needed to document sly.types.
     "PTH123", # builtin open() is fine.
@@ -160,7 +160,7 @@ keep-runtime-typing = true
     "T201",   # Allow printing.
     "ANN201", # Allow lack of return annotations for public functions. Tests return None usually.
 ]
-"example/**/*.py" = [
+"example/**" = [
     # Refer to comments in the tests/*.py entry.
     "RUF012",
     "F811",
@@ -176,7 +176,13 @@ keep-runtime-typing = true
 
 [tool.pyright]
 include = ["src/sly"]
-ignore = ["example/calc*", "example/schcls", "example/wasm/expr.py", "tests"]
+ignore = [
+    "example/calc*",
+    "example/conflict",
+    "example/schcls",
+    "example/wasm/expr.py",
+    "tests",
+]
 pythonVersion = "3.9"
 pythonPlatform = "All"
 typeCheckingMode = "strict"

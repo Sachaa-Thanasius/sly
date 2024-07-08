@@ -38,7 +38,7 @@ import inspect
 import sys
 import threading
 from collections import defaultdict
-from collections.abc import Callable, Collection, Generator, Iterator, Sequence
+from collections.abc import Callable, Collection, Generator, Iterator
 from functools import reduce
 from string import Template
 from typing import TYPE_CHECKING, Any, ClassVar, Optional, TextIO, Union, cast
@@ -48,7 +48,7 @@ if TYPE_CHECKING:
 else:
     FunctionType = type(lambda: None)
 
-from ._typing import CallableT, TypeAlias, override
+from ._typing import CallableT, Self, TypeAlias, override
 from .lex import Token
 
 __all__ = ("Parser",)
@@ -297,7 +297,7 @@ class Production:
         line: int = 0,
     ) -> None:
         self.name = name
-        self.prod: Sequence[str] = tuple(prod)
+        self.prod: tuple[str, ...] = tuple(prod)
         self.number = number
         self.func = func
         self.file = file
@@ -436,7 +436,7 @@ class LRItem:
 
     def __init__(self, p: Production, n: int) -> None:
         self.name: str = p.name
-        self.prod: tuple[str, ...] = (*p.prod[:n], ".", *p.prod[n:])
+        self.prod: tuple[str, ...] = p.prod[:n] + (".",) + p.prod[n:]
         self.number: int = p.number
         self.lr_index: int = n
         self.lookaheads: dict[int, list[str]] = {}
@@ -454,6 +454,344 @@ class LRItem:
     @override
     def __repr__(self) -> str:
         return f"LRItem({self})"
+
+
+class LRPathItem:
+    def __init__(self, lookahead: str) -> None:
+        self._hash = (lookahead,)
+        self._lookahead = lookahead
+
+    def to_string(self) -> tuple[list[str], int]:
+        return [self._lookahead], len(self._lookahead)
+
+
+class LRPath:
+    """This class represents a path between nodes."""
+
+    def __init__(
+        self,
+        node: "LRDominanceNode",
+        sequence: list[Union[LRPathItem, Self]],
+        use_marker: bool = True,
+    ) -> None:
+        self._node = node
+        if sequence:
+            self._sequence: list[Union[LRPathItem, Self]] = sequence
+        else:
+            if use_marker:
+                self._sequence = [
+                    LRPathItem("\u2666"),
+                    *map(LRPathItem, self._node.item.prod[self._node.item.lr_index + 1 :]),
+                ]
+            else:
+                self._sequence = [LRPathItem(i) for i in self._node.item.prod[self._node.item.lr_index + 1 :]]
+            if node.item.number == 0:
+                self._sequence.append(LRPathItem("$end"))
+        self._hash = sum([s._hash for s in self._sequence], start=(node.item,))
+
+    @override
+    def __hash__(self) -> int:
+        return hash(self._hash)
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, type(self)):
+            return NotImplemented
+        return self._hash == other._hash
+
+    def derive_from(self, node: "LRDominanceNode", lookahead: Optional[str]) -> Self:
+        if lookahead is None:
+            result = type(self)(node, [self, *map(LRPathItem, node.item.prod[node.item.lr_index + 2 :])])
+            if node.item.number == 0:
+                result._sequence.append(LRPathItem("$end"))
+        else:
+            result = type(self)(node, [LRPathItem(lookahead), *self._sequence])
+        return result
+
+    def expand_left(self) -> Self:
+        return type(self)(
+            self._node,
+            [*map(LRPathItem, self._node.item.prod[: self._node.item.lr_index]), *self._sequence],
+        )
+
+    def expand(self, index: int, path: Self) -> Self:
+        return type(self)(self._node, [*self._sequence[:index], *path._sequence])
+
+    def to_string(self) -> tuple[list[str], int]:
+        expanded_symbol = self._node.item.name
+
+        if len(self._sequence) == 0:
+            return ["", f"\u2570{expanded_symbol}\u256f"], len(expanded_symbol) + 2
+
+        buffer, length = self._sequence[0].to_string()
+        for item in self._sequence[1:]:
+            temp = buffer
+            extension, ext_length = item.to_string()
+            buffer = [f"{i.ljust(length)} {j}" for i, j in zip(temp, extension)]
+            buffer += temp[len(extension) :]
+            buffer += [(1 + length) * " " + j for j in extension[len(temp) :]]
+            length += 1 + ext_length
+
+        extra_padding = "\u2500" * (length - 2 - len(expanded_symbol))
+        buffer.append(f"\u2570{expanded_symbol}{extra_padding}\u256f")
+        return buffer, max(length, len(buffer[-1]))
+
+
+class LRDominanceNode:
+    """This class represents a node used in the complete grammar graph.
+
+    Expanded Summary
+    ----------------
+    There is one dominance node for every item of every item set.
+    """
+
+    def __init__(
+        self,
+        item_set: "LRItemSet",
+        item: LRItem,
+        predecessor: Optional[tuple[str, Self]] = None,
+        parent: Optional[Self] = None,
+    ) -> None:
+        self.item_set: LRItemSet = item_set
+        self.item: LRItem = item
+        if predecessor is not None:
+            self.predecessor_lookahead = predecessor[0]
+            self.predecessors = [predecessor[1]]
+        else:
+            self.predecessors = []
+        self.successor: Optional[LRDominanceNode] = None
+
+        self.direct_parents: list[Self] = []
+        self.parents: set[Self] = set()
+        self.direct_children: list[Self] = []
+        self.children: set[Self] = set()
+        if parent is not None:
+            self.direct_parents.append(parent)
+            self.parents.add(parent)
+            parent.direct_children.append(self)
+            parent.children.add(self)
+
+    def expand_empty(self, first_set: LRPath) -> Optional[LRPath]:
+        """Expand the first item of the path to build empty productions."""
+
+        if self.item.lr_index == len(self.item.prod) - 1:
+            return LRPath(self, [], use_marker=False)
+        for child in sorted(self.direct_children, key=lambda n: len(n.item.prod)):
+            try:
+                following_symbol = child.item.prod[1]
+            except IndexError:
+                result = LRPath(child, [], use_marker=False)
+                return result.derive_from(self, None)
+            else:
+                if "<empty>" in first_set[following_symbol]:
+                    p = child.successor.expand_empty(first_set)
+                    if p:
+                        result = child.expand_empty(first_set)
+                        assert result
+                        result = result.expand(1, p)
+                        return result.derive_from(self, None)
+        return None
+
+    def expand_lookahead(self, lookahead: str, first_set: dict[str, list[str]]) -> Optional[LRPath]:
+        """Expand the first item of the path until it starts with the lookahead."""
+
+        if self.item.prod[self.item.lr_index + 1] == lookahead:
+            return LRPath(self, [], use_marker=False)
+
+        queue: list[tuple[Self, list[list[LRPath]]]] = [(self, [[]])]
+        seen: set[Self] = set()
+
+        while queue:
+            node, paths = queue.pop(0)
+            if node in seen:
+                continue
+            seen.add(node)
+
+            try:
+                following_symbol = node.item.prod[node.item.lr_index + 1]
+            except IndexError:
+                continue
+
+            if following_symbol == lookahead:
+                result = None
+                paths[-1].append(LRPath(node, [], use_marker=False))
+                while paths:
+                    child_paths = paths.pop(-1)
+                    if result is not None:
+                        child_paths[-1] = child_paths[-1].expand(1, result)
+
+                    def merge_children(x: LRPath, y: LRPath) -> LRPath:
+                        return x.derive_from(y._node, None)
+
+                    result = reduce(merge_children, child_paths[::-1])
+                return result
+            elif lookahead in first_set[following_symbol]:
+                for child in sorted(node.direct_children, key=lambda n: len(n.item.prod)):
+                    queue.append((child, paths[:-1] + [paths[-1] + [LRPath(node, [], use_marker=False)]]))
+            elif "<empty>" in first_set[following_symbol]:
+                queue.append((node.successor, [*paths[:-1], [*paths[-1], node.expand_empty(first_set)], []]))
+
+        return None
+
+    def filter_node_by_lookahead(
+        self,
+        path: LRPath,
+        lookahead: Optional[str],
+        first_set: dict[str, list[str]],
+    ) -> list[tuple[LRPath, Optional[str]]]:
+        result: list[tuple[LRPath, Optional[str]]] = []
+
+        if lookahead is not None:
+            try:
+                following_symbol = self.item.prod[self.item.lr_index + 2]
+            except IndexError:
+                if lookahead == "$end" and self.item.number == 0:
+                    result.append((path, None))
+                else:
+                    result.append((path, lookahead))
+            else:
+                if "<empty>" in first_set[following_symbol]:
+                    successor_path = self.successor.expand_empty(first_set)
+                    for p, la in self.successor.filter_node_by_lookahead(successor_path, lookahead, first_set):
+                        result.append((path.expand(1, p), la))
+                if lookahead in first_set[following_symbol]:
+                    successor_path = self.successor.expand_lookahead(lookahead, first_set)
+                    assert successor_path
+                    result.append((path.expand(1, successor_path), None))
+        else:
+            result.append((path, lookahead))
+        return result
+
+    def backtrack_up(
+        self,
+        path: LRPath,
+        state: Optional["LRItemSet"],
+        lookahead: Optional[str],
+        first_set: dict[str, list[str]],
+        seen: set[tuple["LRDominanceNode", Optional[str]]],
+    ) -> list[tuple[LRPath, Optional[str]]]:
+        """Find the fastest path from self to the specified parent state.
+
+        Notes
+        -----
+        It will only find paths that can be followed by lookahead.
+        """
+
+        queue: list[tuple[LRPath, Optional[str]]] = [(path, lookahead)]
+        result: list[tuple[LRPath, Optional[str]]] = []
+        shortest_path_seen: set[tuple[Optional[str], LRItemSet, tuple[str, ...]]] = set()
+        while queue:
+            path, lookahead = queue.pop(0)
+            node = path._node
+            for parent in sorted(node.direct_parents, key=lambda n: len(n.item.prod) - n.item.lr_index):
+                if (parent, lookahead) in seen:
+                    continue
+                seen.add((parent, lookahead))
+                if parent.item.lr_index > 0 and (
+                    (lookahead, parent.item_set, parent.item.prod[: parent.item.lr_index]) in shortest_path_seen
+                ):
+                    continue
+                for p, la in parent.filter_node_by_lookahead(path.derive_from(parent, None), lookahead, first_set):
+                    if parent.item.lr_index > 0 and la is None:
+                        shortest_path_seen.add((lookahead, parent.item_set, parent.item.prod[: parent.item.lr_index]))
+                    if la is None and state is None:
+                        result.append((p, la))
+                    else:
+                        queue.append((p, la))
+            for predecessor in node.predecessors:
+                if (predecessor, lookahead) in seen:
+                    continue
+                seen.add((predecessor, lookahead))
+                if state is None or predecessor.item_set == state:
+                    if predecessor.item.lr_index > 0:
+                        if (
+                            lookahead,
+                            predecessor.item_set,
+                            predecessor.item.prod[: predecessor.item.lr_index],
+                        ) in shortest_path_seen:
+                            continue
+                        shortest_path_seen.add(
+                            (lookahead, predecessor.item_set, predecessor.item.prod[: predecessor.item.lr_index])
+                        )
+                    result.append((path.derive_from(predecessor, node.predecessor_lookahead), lookahead))
+        return result
+
+
+class LRItemSet:
+    """This class represents a collection of LRItem objects and their relationship.
+
+    Expanded Summary
+    ----------------
+    Storing relationships between LRItems allows backtracking to find sequences of tokens that lead to a conflict.
+    """
+
+    def __init__(self, core: list[tuple[LRItem, Optional[LRDominanceNode], str]]) -> None:
+        self._core: set[LRDominanceNode] = set()
+        self._items: dict[LRItem, LRDominanceNode] = {}
+        self.add_core(core)
+        self._lr0_close()
+
+    def __iter__(self) -> Iterator[LRItem]:
+        return iter(self._items)
+
+    def __getitem__(self, item: LRItem) -> LRDominanceNode:
+        return self._items[item]
+
+    @override
+    def __repr__(self) -> str:
+        return f"LRItemSet({id(self)})"
+
+    def add_core(self, core: list[tuple[LRItem, Optional[LRDominanceNode], str]]) -> None:
+        for item, node, lookahead in core:
+            try:
+                target_node = self._items[item]
+            except KeyError:
+                if node is not None:
+                    target_node = LRDominanceNode(self, item, predecessor=(lookahead, node))
+                else:
+                    target_node = LRDominanceNode(self, item)
+                self._items[item] = target_node
+            else:
+                assert node not in target_node.predecessors
+                target_node.predecessors.append(node)
+            if node is not None:
+                node.successor = target_node
+            self._core.add(target_node)
+
+    def _lr0_close(self) -> None:
+        """Compute the LR(0) closure operation on self._items."""
+
+        new_items = self._items
+        while new_items:
+            self._items.update(new_items)
+            new_items: dict[LRItem, LRDominanceNode] = {}
+            for item, dn in self._items.items():
+                for x in item.lr_after:
+                    assert x.lr_next
+                    try:
+                        successor: LRDominanceNode = self._items[x.lr_next]
+                    except KeyError:
+                        try:
+                            successor = new_items[x.lr_next]
+                        except KeyError:
+                            successor = LRDominanceNode(self, x.lr_next, parent=dn)
+                            new_items[x.lr_next] = successor
+                    if successor not in dn.direct_children:
+                        dn.direct_children.append(successor)
+                    if dn not in successor.direct_parents:
+                        successor.direct_parents.append(dn)
+
+                    dn.children.add(successor)
+                    dn.children.update(successor.children)
+                    for node in dn.parents:
+                        node.children.add(successor)
+                        node.children.update(successor.children)
+
+                    successor.parents.add(dn)
+                    successor.parents.update(dn.parents)
+                    for node in successor.children:
+                        node.parents.add(dn)
+                        node.parents.update(dn.parents)
 
 
 class GrammarError(YaccError):
@@ -806,7 +1144,7 @@ class Grammar:
 
         return unused
 
-    def _first(self, beta: Sequence[str]) -> list[str]:
+    def _first(self, beta: tuple[str, ...]) -> list[str]:
         """Compute the value of FIRST1(beta) where beta is a tuple of symbols.
 
         Extended Summary
@@ -1088,6 +1426,9 @@ class LALRError(YaccError):
     pass
 
 
+_RecursiveLRItemSetMap = dict[Union[int, str], Union["_RecursiveLRItemSetMap", LRItemSet]]
+
+
 class LRTable:
     """This class implements the LR table generation algorithm. There are no public methods except for `write()`."""
 
@@ -1101,19 +1442,21 @@ class LRTable:
         # Cache of computed gotos
         self.lr_goto_cache: dict[
             Union[tuple[int, str], str],
-            Union[list[LRItem], dict[Union[int, str], list[LRItem]]],
+            Union[LRItemSet, _RecursiveLRItemSetMap],
         ] = {}
         self.lr0_cidhash: dict[int, int] = {}  # Cache of closures
         self._add_count = 0  # Internal counter used to detect cycles
 
         # Diagonistic information filled in by the table generator
         self.state_descriptions: dict[int, str] = {}
+        self.graph_description: list[str] = []
+        self.edge_description: list[str] = []
         self.sr_conflict = 0
         self.rr_conflict = 0
         self.conflicts = []  # List of conflicts
 
-        self.sr_conflicts: list[tuple[int, str, str]] = []
-        self.rr_conflicts: list[tuple[int, Production, Production]] = []
+        self.sr_conflicts: list[tuple[int, str, str, LRDominanceNode, LRDominanceNode, LRItem, LRItem]] = []
+        self.rr_conflicts: list[tuple[int, str, Production, Production, LRDominanceNode, LRDominanceNode]] = []
 
         # Build the tables
         self.grammar.build_lritems()
@@ -1135,34 +1478,7 @@ class LRTable:
             if len(rules) == 1 and rules[0] < 0:
                 self.defaulted_states[state] = rules[0]
 
-    def lr0_closure(self, I: list[LRItem]) -> list[LRItem]:
-        """Compute the LR(0) closure operation on a set of LR(0) items.
-
-        Parameters
-        ----------
-        I: list[LRItem]
-            A set of LR(0) items
-        """
-
-        self._add_count += 1
-
-        # Add everything in I to J
-        J: list[LRItem] = I[:]
-        didadd = True
-        while didadd:
-            didadd = False
-            for j in J:
-                for x in j.lr_after:
-                    if getattr(x, "lr0_added", 0) == self._add_count:
-                        continue
-                    # Add B --> .G to J
-                    J.append(x.lr_next)
-                    x.lr0_added = self._add_count
-                    didadd = True
-
-        return J
-
-    def lr0_goto(self, I: list[LRItem], x: str) -> Optional[list[LRItem]]:
+    def lr0_goto(self, I: LRItemSet, x: str) -> Optional[LRItemSet]:
         """Compute the LR(0) goto function goto(I,X) where I is a set of LR(0) items and X is a grammar symbol.
 
         Notes
@@ -1178,36 +1494,38 @@ class LRTable:
         except KeyError:
             pass
         else:
-            assert isinstance(g, (list, type(None)))
+            print(type(g))
             return g
 
         # Now we generate the goto set in a way that guarantees uniqueness of the result
         s = self.lr_goto_cache.setdefault(x, {})
-        assert isinstance(s, dict)
+        s = cast(_RecursiveLRItemSetMap, s)
 
-        gs: list[LRItem] = []
+        gs: list[tuple[LRItem, Optional[LRDominanceNode], str]] = []
         for p in I:
             n = p.lr_next
             if n and n.lr_before == x:
                 s = s.setdefault(id(n), {})  # pyright: ignore
-                gs.append(n)
+                gs.append((n, I[p], x))
         assert isinstance(s, dict)
 
         g = s.get("$end")
         if not g:
             if gs:
-                s["$end"] = g = self.lr0_closure(gs)
+                s["$end"] = g = LRItemSet(gs)
             else:
                 s["$end"] = gs
+        else:
+            g.add_core(gs)
         self.lr_goto_cache[(id(I), x)] = g  # pyright: ignore
         return g
 
-    def lr0_items(self) -> list[list[LRItem]]:
+    def lr0_items(self) -> list[LRItemSet]:
         """Compute the LR(0) sets of item function."""
 
         assert self.grammar.Productions[0].lr_next
 
-        C = [self.lr0_closure([self.grammar.Productions[0].lr_next])]
+        C = [LRItemSet([(self.grammar.Productions[0].lr_next, None, "$start")])]
 
         self.lr0_cidhash.update({id(I): i for i, I in enumerate(C)})
 
@@ -1270,7 +1588,7 @@ class LRTable:
             num_nullable = len(nullable)
         return nullable
 
-    def find_nonterminal_transitions(self, C: list[list[LRItem]]) -> list[tuple[int, str]]:
+    def find_nonterminal_transitions(self, C: list[LRItemSet]) -> list[tuple[int, str]]:
         """Given a set of LR(0) items, this functions finds all of the non-terminal transitions.
 
         Extended Summary
@@ -1279,7 +1597,7 @@ class LRTable:
 
         Parameters
         ----------
-        C: list[list[LRItem]]
+        C: list[LRItemSet]
             The set of LR(0) items.
 
         Returns
@@ -1297,12 +1615,12 @@ class LRTable:
                         trans.append(t)
         return trans
 
-    def dr_relation(self, C: list[list[LRItem]], trans: tuple[int, str], nullable: set[str]) -> list[str]:
+    def dr_relation(self, C: list[LRItemSet], trans: tuple[int, str], nullable: set[str]) -> list[str]:
         """Computes the DR(p,A) relationships for non-terminal transitions.
 
         Parameters
         ----------
-        C: list[list[LRItem]]
+        C: list[LRItemSet]
             Set of LR(0) items.
         trans: tuple[int, str]
             A tuple (state,N) where state is a number and N is a nonterminal symbol.
@@ -1332,7 +1650,7 @@ class LRTable:
 
         return terms
 
-    def reads_relation(self, C: list[list[LRItem]], trans: tuple[int, str], empty: set[str]) -> list[tuple[int, str]]:
+    def reads_relation(self, C: list[LRItemSet], trans: tuple[int, str], empty: set[str]) -> list[tuple[int, str]]:
         """Computes the READS() relation (p,A) READS (t,C)."""
 
         # Look for empty transitions
@@ -1352,7 +1670,7 @@ class LRTable:
 
     def compute_lookback_includes(
         self,
-        C: list[list[LRItem]],
+        C: list[LRItemSet],
         trans: list[tuple[int, str]],
         nullable: set[str],
     ) -> tuple[dict[tuple[int, str], list[tuple[int, LRItem]]], dict[tuple[int, str], list[tuple[int, str]]]]:
@@ -1446,7 +1764,7 @@ class LRTable:
 
     def compute_read_sets(
         self,
-        C: list[list[LRItem]],
+        C: list[LRItemSet],
         ntrans: list[tuple[int, str]],
         nullable: set[str],
     ) -> dict[tuple[int, str], list[str]]:
@@ -1454,7 +1772,7 @@ class LRTable:
 
         Parameters
         ----------
-        C: list[list[LRItem]]
+        C: list[LRItemSet]
             Set of LR(0) items.
         ntrans: list[tuple[int, str]]
             Set of nonterminal transitions.
@@ -1538,7 +1856,7 @@ class LRTable:
                     if a not in p.lookaheads[state]:
                         p.lookaheads[state].append(a)
 
-    def add_lalr_lookaheads(self, C: list[list[LRItem]]) -> None:
+    def add_lalr_lookaheads(self, C: list[LRItemSet]) -> None:
         """This function does all of the work of adding lookahead information for use with LALR parsing."""
 
         # Determine all of the nullable nonterminals
@@ -1567,7 +1885,7 @@ class LRTable:
         goto = self.lr_goto  # Goto array
         action = self.lr_action  # Action array
 
-        actionp = {}  # Action production array (temporary)
+        actionp: dict[int, dict[str, LRItem]] = {}  # Action production array (temporary)
 
         # Step 1: Construct C = { I0, I1, ... IN}, collection of LR(0) items
         # This determines the number of states
@@ -1583,6 +1901,9 @@ class LRTable:
             st_action: dict[str, Optional[int]] = {}
             st_actionp: dict[str, LRItem] = {}
             st_goto: dict[str, int] = {}
+
+            sr_conflict_count = 0
+            rr_conflict_count = 0
 
             descrip.append(f"\nstate {st}\n")
             descrip.extend(f"    ({p.number}) {p}" for p in I)
@@ -1615,10 +1936,15 @@ class LRTable:
                                     if (slevel < rlevel) or ((slevel == rlevel) and (rprec == "left")):
                                         # We really need to reduce here.
                                         st_action[a] = -p.number
+                                        rejected = st_actionp[a]
+                                        shift_rule = st_actionp[a]
                                         st_actionp[a] = p
                                         if not slevel and not rlevel:
                                             descrip.append(f"  ! shift/reduce conflict for {a} resolved as reduce")
-                                            self.sr_conflicts.append((st, a, "reduce"))
+                                            self.sr_conflicts.append(
+                                                (st, a, "reduce", I[rejected], I[p], shift_rule, p)
+                                            )
+                                            sr_conflict_count += 1
                                         Productions[p.number].reduced += 1
                                     elif (slevel == rlevel) and (rprec == "nonassoc"):
                                         st_action[a] = None
@@ -1626,25 +1952,31 @@ class LRTable:
                                         # Hmmm. Guess we'll keep the shift
                                         if not rlevel:
                                             descrip.append(f"  ! shift/reduce conflict for {a} resolved as shift")
-                                            self.sr_conflicts.append((st, a, "shift"))
+                                            self.sr_conflicts.append(
+                                                (st, a, "shift", I[st_actionp[a]], I[p], st_actionp[a], p)
+                                            )
+                                            sr_conflict_count += 1
                                 elif r <= 0:
                                     # Reduce/reduce conflict.   In this case, we favor the rule
                                     # that was defined first in the grammar file
+                                    olditem = st_actionp[a]
                                     oldp = Productions[-r]
                                     pp = Productions[p.number]
+                                    pitem = p
                                     if oldp.line > pp.line:
                                         st_action[a] = -p.number
                                         st_actionp[a] = p
-                                        chosenp, rejectp = pp, oldp
+                                        chosenp, rejectp, chosenitem, rejecteditem = pp, oldp, pitem, olditem
                                         Productions[p.number].reduced += 1
                                         Productions[oldp.number].reduced -= 1
                                     else:
-                                        chosenp, rejectp = oldp, pp
-                                    self.rr_conflicts.append((st, chosenp, rejectp))
+                                        chosenp, rejectp, chosenitem, rejecteditem = oldp, pp, olditem, pitem
+                                    self.rr_conflicts.append((st, a, chosenp, rejectp, I[chosenitem], I[rejecteditem]))
                                     descrip.append(
                                         f"  ! reduce/reduce conflict for {a} resolved using "
                                         f"rule {st_actionp[a].number} ({st_actionp[a]})"
                                     )
+                                    rr_conflict_count += 1
                                 else:
                                     raise LALRError(f"Unknown conflict in state {st}")
                             else:
@@ -1676,18 +2008,24 @@ class LRTable:
                                     if (slevel > rlevel) or ((slevel == rlevel) and (rprec == "right")):
                                         # We decide to shift here... highest precedence to shift
                                         Productions[st_actionp[a].number].reduced -= 1
+                                        reduce = st_actionp[a]
+                                        reduce_rule = st_actionp[a]
                                         st_action[a] = j
                                         st_actionp[a] = p
                                         if not rlevel:
                                             descrip.append(f"  ! shift/reduce conflict for {a} resolved as shift")
-                                            self.sr_conflicts.append((st, a, "shift"))
+                                            self.sr_conflicts.append((st, a, "shift", I[p], I[reduce], p, reduce_rule))
+                                            sr_conflict_count += 1
                                     elif (slevel == rlevel) and (rprec == "nonassoc"):
                                         st_action[a] = None
                                     else:
                                         # Hmmm. Guess we'll keep the reduce
                                         if not slevel and not rlevel:
                                             descrip.append(f"  ! shift/reduce conflict for {a} resolved as reduce")
-                                            self.sr_conflicts.append((st, a, "reduce"))
+                                            self.sr_conflicts.append(
+                                                (st, a, "reduce", I[p], I[st_action[a]], p, st_actionp[a])
+                                            )
+                                            sr_conflict_count += 1
 
                                 else:
                                     raise LALRError(f"Unknown conflict in state {st}")
@@ -1704,7 +2042,7 @@ class LRTable:
             descrip.append("")
 
             # Construct the goto table for this state
-            nkeys: dict[str, None] = dict.fromkeys(s for ii in I for s in ii.usyms if s in self.grammar.Nonterminals)
+            nkeys: dict[str, None] = dict.fromkeys([s for ii in I for s in ii.usyms if s in self.grammar.Nonterminals])
 
             for n in nkeys:
                 g = self.lr0_goto(I, n)
@@ -1717,6 +2055,126 @@ class LRTable:
             actionp[st] = st_actionp
             goto[st] = st_goto
             self.state_descriptions[st] = "\n".join(descrip)
+            color = "lightgray"
+            if sr_conflict_count > 0:
+                color = "yellow"
+            if rr_conflict_count > 0:
+                color = "orange"
+            self.graph_description.append(
+                "\n".join(
+                    [
+                        f"  subgraph cluster_{st} {{",
+                        f'    label="State {st}";',
+                        "    style=filled;",
+                        f"    color={color};",
+                        "    node[style=filled;color=white];",
+                        *[f'    {id(node)}[label="{node.item}"];' for node in I._items.values()],
+                        "  }",
+                    ]
+                )
+            )
+            for node in I._items.values():
+                for parent in node.direct_parents:
+                    self.edge_description += [f"    {id(parent)}->{id(node)}[style=dotted];"]
+                for predecessor in node.predecessors:
+                    self.edge_description += [
+                        f'    {id(predecessor)}->{id(node)}[label="{node.predecessor_lookahead}"];'
+                    ]
+
+    def _log(self, title: str, conflict_paths: list[LRPath], out: list[str]) -> None:
+        seen: set[LRPath] = set()
+        if conflict_paths:
+            count = len(set(conflict_paths))
+            out.append(f"   {title}")
+            out.append("   \u256d\u2574")
+            for path in conflict_paths:
+                if path in seen:
+                    continue
+                count -= 1
+                seen.add(path)
+                strings = path.expand_left().to_string()[0]
+                for s in strings:
+                    out.append(f"   \u2502 {s}")
+                if count == 0:
+                    out.append("   \u2570\u2574")
+                else:
+                    out.append("   \u251c\u2574")
+
+    def _log_counterexamples(
+        self,
+        node_1: LRDominanceNode,
+        example_1: str,
+        lookahead_1: Optional[str],
+        node_2: LRDominanceNode,
+        example_2: str,
+        lookahead_2: Optional[str],
+        out: list[str],
+    ) -> None:
+        conflict_r1_paths: list[LRPath] = []
+        conflict_r2_paths: list[LRPath] = []
+        seen_1: set[tuple[LRDominanceNode, Optional[str]]] = set()
+        seen_2: set[tuple[LRDominanceNode, Optional[str]]] = set()
+
+        queue = [((LRPath(node_1, []), lookahead_1), (LRPath(node_2, []), lookahead_2))]
+        while queue:
+            (path_1, lookahead_1), (path_2, lookahead_2) = queue.pop(0)
+            if path_1._node.item.lr_index == 0 and path_2._node.item.lr_index == 0:
+                if lookahead_1 is None and lookahead_2 is None:
+                    conflict_r1_paths.append(path_1)
+                    conflict_r2_paths.append(path_2)
+                elif lookahead_1 is not None:
+                    for path1, la1 in path_1._node.backtrack_up(path_1, None, lookahead_1, self.grammar.First, seen_1):
+                        if path1._node.item_set == path_2._node.item_set:
+                            queue.append(((path1, la1), (path_2, lookahead_2)))
+                        else:
+                            for path2, la2 in path_2._node.backtrack_up(
+                                path_2, path1._node.item_set, lookahead_2, self.grammar.First, seen_2
+                            ):
+                                queue.append(((path1, la1), (path2, la2)))
+                else:
+                    for path2, la2 in path_2._node.backtrack_up(path_2, None, lookahead_2, self.grammar.First, seen_2):
+                        if path_1._node.item_set == path2._node.item_set:
+                            queue.append(((path_1, lookahead_1), (path2, la2)))
+                        else:
+                            for path1, la1 in path_1._node.backtrack_up(
+                                path_1, path2._node.item_set, lookahead_1, self.grammar.First, seen_1
+                            ):
+                                queue.append(((path1, la1), (path2, la2)))
+            else:
+                if path_1._node.item.lr_index == 0:
+                    for pred_2 in path_2._node.predecessors:
+                        parent_paths = path_1._node.backtrack_up(
+                            path_1, pred_2.item_set, lookahead_1, self.grammar.First, set()
+                        )
+                        for p, la in parent_paths:
+                            queue.append(
+                                ((p, la), (path_2.derive_from(pred_2, path_2._node.predecessor_lookahead), lookahead_2))
+                            )
+                elif path_2._node.item.lr_index == 0:
+                    for pred_1 in path_1._node.predecessors:
+                        parent_paths = path_2._node.backtrack_up(
+                            path_2, pred_1.item_set, lookahead_2, self.grammar.First, set()
+                        )
+                        for p, la in parent_paths:
+                            queue.append(
+                                ((path_1.derive_from(pred_1, path_1._node.predecessor_lookahead), lookahead_1), (p, la))
+                            )
+                else:
+                    # reduce path_1 and path_2
+                    for pred_1 in path_1._node.predecessors:
+                        for pred_2 in path_2._node.predecessors:
+                            if pred_1.item_set == pred_2.item_set and pred_1.item_set != path_1._node.item_set:
+                                queue.append(
+                                    (
+                                        (path_1.derive_from(pred_1, path_1._node.predecessor_lookahead), lookahead_1),
+                                        (path_2.derive_from(pred_2, path_2._node.predecessor_lookahead), lookahead_2),
+                                    )
+                                )
+
+        self._log(example_1, conflict_r1_paths, out)
+        out.append("")
+        self._log(example_2, conflict_r2_paths, out)
+        out.append("")
 
     @override
     def __str__(self) -> str:
@@ -1732,26 +2190,58 @@ class LRTable:
 
         if self.sr_conflicts or self.rr_conflicts:
             out.append("\nConflicts:\n")
-            out.extend(
-                f"shift/reduce conflict for {tok} in state {state} resolved as {resolution}"
-                for state, tok, resolution in self.sr_conflicts
-            )
+            for state, tok, resolution, shift_node, reduce_node, shift_rule, reduce_rule in self.sr_conflicts:
+                out.append(f"shift/reduce conflict for {tok} in state {state} resolved as {resolution}")
+                self._log_counterexamples(
+                    shift_node,
+                    f"shift using rule {shift_rule}",
+                    None,
+                    reduce_node,
+                    f"reduce using rule {reduce_rule}",
+                    tok,
+                    out,
+                )
 
-            already_reported: set[tuple[int, int, int]] = set()
-            for state, rule, rejected in self.rr_conflicts:
-                if (state, id(rule), id(rejected)) in already_reported:
-                    continue
-                out.append(f"reduce/reduce conflict in state {state} resolved using rule {rule}")
-                out.append(f"rejected rule ({rejected}) in state {state}")
-                already_reported.add((state, id(rule), id(rejected)))
+            rr_conflict_map: dict[
+                tuple[int, int, int],
+                tuple[int, Production, Production, LRDominanceNode, LRDominanceNode, list[str]],
+            ] = {}
+            # group reduce/reduce conflicts per state, collect lookaheads
+            for i, (state, lookahead, rule, rejected, node, rejected_node) in enumerate(self.rr_conflicts):
+                try:
+                    rr_conflict_map[state, id(rule), id(rejected)][5].append(lookahead)
+                except KeyError:
+                    rr_conflict_map[state, id(rule), id(rejected)] = (
+                        i,
+                        rule,
+                        rejected,
+                        node,
+                        rejected_node,
+                        [lookahead],
+                    )
+
+            for (state, _, _), (_, rule, rejected, node, rejected_node, lookaheads) in sorted(
+                rr_conflict_map.items(), key=lambda x: (x[0][0], x[1][0])
+            ):
+                for la in lookaheads:
+                    out.append(f"reduce/reduce conflict for {la} in state {state} resolved using rule {rule}")
+                    out.append(f"rejected rule ({rejected}) in state {state}")
+                    ex_1 = f"reduce using {rule} with lookahead {la}"
+                    ex_2 = f"reduce using {rejected} with lookahead {la}"
+                    self._log_counterexamples(node, ex_1, la, rejected_node, ex_2, la, out)
 
             warned_never: set[Production] = set()
-            for _, _, rejected in self.rr_conflicts:
+            for _, _, _, rejected, _, _ in self.rr_conflicts:
                 if not rejected.reduced and (rejected not in warned_never):
                     out.append(f"Rule ({rejected}) is never reduced")
                     warned_never.add(rejected)
 
         return "\n".join(out)
+
+    def dot_graph(self) -> str:
+        """Dotfile output. Dump the state machine into a graph."""
+
+        return "\n".join(["digraph Grammar {", *self.graph_description, *self.edge_description, "}"])
 
 
 _RawGrammarRule: TypeAlias = tuple[Callable[..., Any], str, int, str, list[str]]
@@ -2102,6 +2592,9 @@ class Parser(metaclass=ParserMeta):
     debugfile: Optional[str] = None
     """Debugging filename where parsetab.out data can be written."""
 
+    dotfile: Optional[str] = None
+    """Dot filename where state achine can be described."""
+
     error_count: int = 3
     """The number of symbols that must be shifted to leave recovery mode. Yacc config knob."""
 
@@ -2297,8 +2790,13 @@ class Parser(metaclass=ParserMeta):
         if not cls.__build_lrtables():
             raise YaccError("Can't build parsing tables")
 
+        if cls.dotfile:
+            with open(cls.dotfile, "w", encoding="utf-8") as f:
+                f.write(cls._lrtable.dot_graph())
+            cls.log.info("Parser dot graph for %s written to %s", cls.__qualname__, cls.dotfile)
+
         if cls.debugfile:
-            with open(cls.debugfile, "w") as f:
+            with open(cls.debugfile, "w", encoding="utf-8") as f:
                 f.write(str(cls._grammar))
                 f.write("\n")
                 f.write(str(cls._lrtable))
