@@ -1,3 +1,4 @@
+# region License
 # -----------------------------------------------------------------------------
 # sly: yacc.py
 #
@@ -31,6 +32,7 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 # -----------------------------------------------------------------------------
+# endregion
 
 import inspect
 import sys
@@ -615,7 +617,7 @@ class Grammar:
             m = self.Prodmap[map_]
             raise GrammarError(f"{file}:{line}: Duplicate rule {m}. Previous definition at {m.file}:{m.line}")
 
-        # From this point on, everything is valid.  Create a new Production instance
+        # From this point on, everything is valid. Create a new Production instance
         pnumber = len(self.Productions)
         if prodname not in self.Nonterminals:
             self.Nonterminals[prodname] = []
@@ -1122,7 +1124,7 @@ class LRTable:
         # Build default states
         # This identifies parser states where there is only one possible reduction action.
         # For such states, the parser can make a choose to make a rule reduction without consuming
-        # the next look-ahead token.  This delayed invocation of the tokenizer can be useful in
+        # the next look-ahead token. This delayed invocation of the tokenizer can be useful in
         # certain kinds of advanced parsing situations where the lexer and parser interact with
         # each other or change states (i.e., manipulation of scope, lexer states, etc.).
         #
@@ -1391,7 +1393,7 @@ class LRTable:
                 if p.name != N:
                     continue
 
-                # Okay, we have a name match.  We now follow the production all the way
+                # Okay, we have a name match. We now follow the production all the way
                 # through the state machine until we get the . on the right hand side
 
                 lr_index = p.lr_index
@@ -1402,7 +1404,7 @@ class LRTable:
 
                     # Check to see if this symbol and state are a non-terminal transition
                     if (j, t) in dtrans:
-                        # Yes.  Okay, there is some chance that this is an includes relation
+                        # Yes. Okay, there is some chance that this is an includes relation
                         # the only way to know for certain is whether the rest of the
                         # production derives empty
 
@@ -1558,7 +1560,7 @@ class LRTable:
         self.add_lookaheads(lookd, followsets)
 
     def lr_parse_table(self) -> None:
-        """This function constructs the final LALR parse table.  Touch this code and die."""
+        """This function constructs the final LALR parse table. Touch this code and die."""
 
         Productions = self.grammar.Productions
         Precedence = self.grammar.Precedence
@@ -1592,7 +1594,7 @@ class LRTable:
                         st_action["$end"] = 0
                         st_actionp["$end"] = p
                     else:
-                        # We are at the end of a production.  Reduce!
+                        # We are at the end of a production. Reduce!
                         laheads = p.lookaheads[st]
                         for a in laheads:
                             actlist.append((a, p, f"reduce using rule {p.number} ({p})"))
@@ -1826,13 +1828,12 @@ def _replace_ebnf_optional(syms: list[str]) -> tuple[list[str], list[_RawGrammar
 def _replace_ebnf_choice(syms: list[str]) -> tuple[list[str], list[_RawGrammarRule]]:
     syms = list(syms)
     newprods: list[_RawGrammarRule] = []
-    n = 0
-    while n < len(syms):
-        if "|" in syms[n]:
-            symname, prods = _generate_choice_rules(syms[n].split("|"))
+    for n, sym in enumerate(syms):
+        if "|" in sym:
+            symname, prods = _generate_choice_rules(sym.split("|"))
             syms[n] = symname
             newprods.extend(prods)
-        n += 1
+
     return syms, newprods
 
 
@@ -2017,37 +2018,33 @@ class ParserMetaDict(dict[str, Any]):
     @override
     def __setitem__(self, key: str, value: Any) -> None:
         if callable(value) and hasattr(value, "rules"):
-            if hasattr(value, "substitutions"):
-                for sub in value.substitutions:
-                    subst_name: str = reduce(
-                        lambda nm, sb: nm.replace(sb[0], sb[1]),  # pyright: ignore
-                        sub.items(),
-                        value.__name__,
-                    )
+            substitutions: Optional[list[dict[str, str]]] = getattr(value, "substitutions", None)
+            if substitutions is not None:
+                for sub in substitutions:
+                    subst_name: str = reduce(lambda nm, sb: nm.replace(sb[0], sb[1]), sub.items(), value.__name__)
                     subst_func = FunctionType(
                         value.__code__, value.__globals__, subst_name, value.__defaults__, value.__closure__
                     )
                     subst_func.rules = [  # pyright: ignore
                         Template(rule_templ).substitute(sub) for rule_templ in reversed(value.rules)
                     ]
-
-                    if subst_name in self:
-                        subst_func.next_func = self[subst_name]  # pyright: ignore
-                        if not hasattr(subst_func.next_func, "rules"):  # pyright: ignore
-                            raise GrammarError(f"Redefinition of {subst_name}. Perhaps an earlier {key} is missing @_")
+                    self.__chain_rules(subst_name, subst_func)
                     super().__setitem__(subst_name, subst_func)
                 return
 
-            if key in self:
-                value.next_func = self[key]
-                if not hasattr(value.next_func, "rules"):
-                    raise GrammarError(f"Redefinition of {key}. Perhaps an earlier {key} is missing @_")
+            self.__chain_rules(key, value)
         super().__setitem__(key, value)
 
     def __missing__(self, key: str) -> str:
         if key.isupper() and key[:1] != "_":
             return key.upper()
         raise KeyError
+
+    def __chain_rules(self, key: str, value: Any) -> None:
+        if key in self:
+            value.next_func = self[key]
+            if not hasattr(value.next_func, "rules"):
+                raise GrammarError(f"Redefinition of {key}. Perhaps an earlier {key} is missing @_")
 
 
 def _substitute_decorator(sub: dict[str, str], *extra: dict[str, str]) -> Callable[[CallableT], CallableT]:
@@ -2091,14 +2088,11 @@ class ParserMeta(type):
         self._build(list(namespace.items()))  # pyright: ignore # This method should always exist in Parser subclasses.
 
 
-_SequenceOfStr: TypeAlias = Union[list[str], tuple[str, ...]]
-_NestedSequenceOfStr: TypeAlias = Union[list[_SequenceOfStr], tuple[_SequenceOfStr, ...]]
+_ConcreteSeqOfStr: TypeAlias = Union[list[str], tuple[str, ...]]
+_NestedConcreteSeqOfStr: TypeAlias = Union[list[_ConcreteSeqOfStr], tuple[_ConcreteSeqOfStr, ...]]
 
 
 class Parser(metaclass=ParserMeta):
-    error_count: int = 3
-    """The number of symbols that must be shifted to leave recovery mode."""
-
     track_positions: bool = True
     """Whether position information is automatically tracked."""
 
@@ -2108,11 +2102,14 @@ class Parser(metaclass=ParserMeta):
     debugfile: Optional[str] = None
     """Debugging filename where parsetab.out data can be written."""
 
+    error_count: int = 3
+    """The number of symbols that must be shifted to leave recovery mode. Yacc config knob."""
+
     if TYPE_CHECKING:
         tokens: ClassVar[set[str]]
         """Lexing tokens. Must be assigned by the user."""
 
-        precedence: ClassVar[_NestedSequenceOfStr]
+        precedence: ClassVar[_NestedConcreteSeqOfStr]
         """Precedence setup. Optionally can be assigned by the user."""
 
     @classmethod
@@ -2138,12 +2135,12 @@ class Parser(metaclass=ParserMeta):
             return True
 
         preclist: list[tuple[str, str, int]] = []
-        if not isinstance(cls.precedence, (list, tuple)):
+        if not isinstance(cls.precedence, (list, tuple)):  # pyright: ignore [reportUnnecessaryIsInstance]
             cls.log.error("precedence must be a list or tuple")
             return False
 
         for level, p in enumerate(cls.precedence, start=1):
-            if not isinstance(p, (list, tuple)):
+            if not isinstance(p, (list, tuple)):  # pyright: ignore [reportUnnecessaryIsInstance]
                 cls.log.error("Bad precedence table entry %r. Must be a list or tuple", p)
                 return False
 
@@ -2151,7 +2148,7 @@ class Parser(metaclass=ParserMeta):
                 cls.log.error("Malformed precedence entry %r. Must be (assoc, term, ..., term)", p)
                 return False
 
-            if not all(isinstance(term, str) for term in p):
+            if not all(isinstance(term, str) for term in p):  # pyright: ignore [reportUnnecessaryIsInstance]
                 cls.log.error("precedence items must be strings")
                 return False
 
@@ -2301,14 +2298,14 @@ class Parser(metaclass=ParserMeta):
             raise YaccError("Can't build parsing tables")
 
         if cls.debugfile:
-            with open(cls.debugfile, "w") as f:  # noqa: PTH123
+            with open(cls.debugfile, "w") as f:
                 f.write(str(cls._grammar))
                 f.write("\n")
                 f.write(str(cls._lrtable))
             cls.log.info("Parser debugging for %s written to %s", cls.__qualname__, cls.debugfile)
 
     # ----------------------------------------------------------------------
-    # Parsing Support.  This is the parsing runtime that users use.
+    # Parsing Support. This is the parsing runtime that users use.
     # ----------------------------------------------------------------------
     def error(self, token: Optional[Union[Token, YaccSymbol]]) -> None:
         """Default error handling function. This may be subclassed."""
@@ -2368,7 +2365,7 @@ class Parser(metaclass=ParserMeta):
 
         errtoken = None  # Err token
         while True:
-            # Get the next symbol on the input.  If a lookahead symbol
+            # Get the next symbol on the input. If a lookahead symbol
             # is already set, we just use that. Otherwise, we'll pull
             # the next token off of the lookaheadstack or from the lexer
             if self.state not in defaulted_states:
@@ -2449,7 +2446,7 @@ class Parser(metaclass=ParserMeta):
                     return result  # noqa: RET504
 
             if t is None:
-                # We have some kind of parsing error here.  To handle
+                # We have some kind of parsing error here. To handle
                 # this, we are going to push the current token onto
                 # the tokenstack and replace it with an 'error' token.
                 # If there are any synchronization rules, they may
@@ -2457,7 +2454,7 @@ class Parser(metaclass=ParserMeta):
                 #
                 # In addition to pushing the error token, we call call
                 # the user defined error() function if this is the
-                # first syntax error.  This function is only called if
+                # first syntax error. This function is only called if
                 # errorcount == 0.
                 if errorcount == 0 or self.errorok:
                     errorcount = self.error_count
@@ -2470,7 +2467,7 @@ class Parser(metaclass=ParserMeta):
                     tok = self.error(errtoken)
                     if tok:
                         # User must have done some kind of panic
-                        # mode recovery on their own.  The
+                        # mode recovery on their own. The
                         # returned token is the next lookahead
                         self.lookahead = tok
                         self.errorok = True
@@ -2480,10 +2477,10 @@ class Parser(metaclass=ParserMeta):
                         if not errtoken:
                             return None
                 else:
-                    # Reset the error count.  Unsuccessful token shifted
+                    # Reset the error count. Unsuccessful token shifted
                     errorcount = self.error_count
 
-                # case 1:  the statestack only has 1 entry on it.  If we're in this state, the
+                # case 1:  the statestack only has 1 entry on it. If we're in this state, the
                 # entire parse has been rolled back and we're completely hosed.   The token is
                 # discarded and we just keep going.
 
@@ -2532,10 +2529,10 @@ class Parser(metaclass=ParserMeta):
             raise RuntimeError("sly: internal parser error!!!\n")
 
     # Return position tracking information
-    def line_position(self, value: Any) -> Optional[int]:
+    def line_position(self, value: object) -> Optional[int]:
         return self._line_positions[id(value)]
 
-    def index_position(self, value: Any) -> tuple[Optional[int], Optional[int]]:
+    def index_position(self, value: object) -> tuple[Optional[int], Optional[int]]:
         return self._index_positions[id(value)]
 
 

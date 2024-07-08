@@ -6,7 +6,6 @@ from ._typing import Self
 
 
 class AST:
-    @classmethod
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
         mod = sys.modules[cls.__module__]

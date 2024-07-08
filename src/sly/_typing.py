@@ -12,7 +12,7 @@ elif TYPE_CHECKING:
         def __init__(self, *args: object, **kwargs: object) -> None:
             pass
 
-else:
+else:  # pragma: no cover
     from typing import _GenericAlias
 
 
@@ -21,11 +21,11 @@ __all__ = ("override", "Self", "TypeAlias")
 
 CallableT = TypeVar("CallableT", bound=Callable[..., Any])
 
-if sys.version_info >= (3, 12):
+if sys.version_info >= (3, 12):  # pragma: >=3.12 cover
     from typing import override
 elif TYPE_CHECKING:
     from typing_extensions import override
-else:
+else:  # pragma: <3.12 cover
 
     def override(arg: object) -> Any:
         try:
@@ -50,21 +50,21 @@ class _PlaceholderMeta(type):
         return f"<placeholder for {super().__repr__()}>"
 
 
-if sys.version_info >= (3, 11):
+if sys.version_info >= (3, 11):  # pragma: >=3.11 cover
     from typing import Self
 elif TYPE_CHECKING:
     from typing_extensions import Self
-else:
+else:  # pragma: <3.11 cover
 
     class Self(metaclass=_PlaceholderMeta):
         pass
 
 
-if sys.version_info >= (3, 10):
+if sys.version_info >= (3, 10):  # pragma: >=3.10 cover
     from typing import TypeAlias
 elif TYPE_CHECKING:
     from typing_extensions import TypeAlias
-else:
+else:  # pragma: <3.10 cover
 
     class TypeAlias(metaclass=_PlaceholderMeta):
         pass

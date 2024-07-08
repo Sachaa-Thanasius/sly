@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
 
 class CalcLexer(Lexer):
-    # Set of token names.   This is always required
+    # Set of token names. This is always required.
     tokens = {ID, NUMBER, PLUS, MINUS, TIMES, DIVIDE, ASSIGN, COMMA}
     literals = {"(", ")"}
 
@@ -41,7 +41,7 @@ class CalcLexer(Lexer):
         self.index += 1
 
     def __init__(self):
-        self.errors = []
+        self.errors: list[str] = []
 
 
 class CalcParser(Parser):
@@ -55,7 +55,7 @@ class CalcParser(Parser):
 
     def __init__(self):
         self.names = {}
-        self.errors = []
+        self.errors: list[Token] = []
 
     @_("ID ASSIGN expr")
     def statement(self, p: Any):
@@ -109,7 +109,7 @@ class CalcParser(Parser):
             self.errors.append(("undefined", p.ID))
             return 0
 
-    def error(self, token):
+    def error(self, token: Token):
         self.errors.append(token)
 
 

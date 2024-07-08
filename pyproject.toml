@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sly"
-dynamic = ["version"]
 description = "SLY - Sly Lex Yacc"
+requires-python = ">=3.9"
 readme = "README.rst"
 license = "BSD-3-Clause"
 authors = [{ name = "David Beazley", email = "dave@dabeaz.com" }]
@@ -13,6 +13,7 @@ maintainers = [
     { name = "Sachaa-Thanasius", email = "111999343+Sachaa-Thanasius@users.noreply.github.com" },
 ]
 classifiers = [
+    "License :: OSI Approved :: BSD License",
     "Natural Language :: English",
     "Operating System :: OS Independent",
     "Programming Language :: Python",
@@ -20,12 +21,13 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "License :: OSI Approved :: BSD License",
     "Typing :: Typed",
 ]
+dynamic = ["version"]
 
 [project.urls]
 Homepage = "https://github.com/Sachaa-Thanasius/sly"
+Documentation = "https://sly.readthedocs.io/en/latest/"
 
 [tool.hatch.version]
 path = "src/sly/__init__.py"
@@ -42,13 +44,19 @@ python = ["3.9", "3.10", "3.11", "3.12"]
 [tool.hatch.envs.hatch-test]
 extra-dependencies = ["covdefaults"]
 
+[tool.pytest.ini_options]
+addopts = ["--import-mode=importlib", "--strict-markers", "--strict-config"]
+
 [tool.coverage.run]
 plugins = ["covdefaults"]
 source = ["sly", "tests"]
+omit = ["src/sly/types.py"]
 
 [tool.coverage.paths]
 sly = ["src"]
-tests = ["tests"]
+
+[tool.coverage.report]
+exclude_lines = ["^\\s*(?:el)?if TYPE_CHECKING:$"]
 
 
 # ---- Linting config
@@ -115,7 +123,6 @@ extend-ignore = [
     "ISC001",
     "ISC002",
     # -- Project-specific rules.
-    "PYI021", # Allow docstrings within type stubs; needed to document sly.types.
     # For strings in exception calls.
     "TRY003",
     "EM101",
@@ -127,6 +134,8 @@ extend-ignore = [
     "RET507",
     "ERA001", # Leave commented code alone.
     "RUF002", # Leave my en dashes alone.
+    "PYI021", # Allow docstrings within type stubs; needed to document sly.types.
+    "PTH123", # builtin open() is fine.
 ]
 unfixable = [
     "ERA", # Prevent unlikely erroneous deletion.
@@ -172,12 +181,12 @@ pythonVersion = "3.9"
 pythonPlatform = "All"
 typeCheckingMode = "strict"
 
-reportPrivateUsage = "none"
+reportPrivateUsage = "none"                    # Unnecessary noise.
 reportUnnecessaryIsInstance = "information"    # Account for incorrect input from users.
+reportUninitializedInstanceVariable = "none"   # Currently noise.
 reportCallInDefaultInitializer = "warning"
 reportImplicitOverride = "warning"
 reportImportCycles = "error"
 reportPropertyTypeMismatch = "error"
 reportShadowedImports = "error"
-reportUninitializedInstanceVariable = "none"
 reportUnnecessaryTypeIgnoreComment = "warning"

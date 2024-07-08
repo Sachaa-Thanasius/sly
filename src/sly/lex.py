@@ -1,3 +1,4 @@
+# region License
 # -----------------------------------------------------------------------------
 # sly: lex.py
 #
@@ -31,6 +32,7 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 # -----------------------------------------------------------------------------
+# endregion
 
 import re
 from collections.abc import Generator
@@ -102,7 +104,7 @@ class Token:
     value: Any
     lineno: int
     index: int
-    end: int
+    end: int  # This doesn't always get initialized.
 
     @override
     def __repr__(self) -> str:
@@ -123,12 +125,12 @@ class TokenStr(str):
     def __setitem__(self, key: str, value: str) -> None:
         # Implementation of TOKEN[value] = NEWTOKEN
         if self.remap is not None:
-            self.remap[self.key, key] = value
+            self.remap[(self.key, key)] = value
 
     def __delitem__(self, key: str) -> None:
         # Implementation of del TOKEN[value]
         if self.remap is not None:
-            self.remap[self.key, key] = self.key
+            self.remap[(self.key, key)] = self.key
 
 
 class _Before:
@@ -390,10 +392,10 @@ class Lexer(metaclass=LexerMeta):
         cls._master_re = cls.regex_module.compile("|".join(parts), cls.reflags)
 
         # Verify that that ignore and literals specifiers match the input type
-        if not isinstance(cls.ignore, str):
+        if not isinstance(cls.ignore, str):  # pyright: ignore [reportUnnecessaryIsInstance]
             raise LexerBuildError("ignore specifier must be a string")
 
-        if not all(isinstance(lit, str) for lit in cls.literals):
+        if not all(isinstance(lit, str) for lit in cls.literals):  # pyright: ignore [reportUnnecessaryIsInstance]
             raise LexerBuildError("literals must be specified as strings")
 
     def begin(self, cls: type["Lexer"]) -> None:

@@ -1,8 +1,8 @@
 SLY (Sly Lex-Yacc)
 ==================
 
-**Note: This is a fork meant to attempt typing the original package, be more
-up to date, and possibly expand functionality in small ways.
+**Note: This is a fork that attempts typing the original package, be a bit
+more up to date, and possibly expand functionality in small ways.**
 
 SLY is a 100% Python implementation of the lex and yacc tools
 commonly used to write parsers and compilers.  Parsing is
@@ -194,7 +194,3 @@ P.S.
 ----
 
 You should come take a `course <https://www.dabeaz.com/courses.html>`_!
-
-
-
-

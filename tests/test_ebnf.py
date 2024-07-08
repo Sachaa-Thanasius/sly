@@ -12,10 +12,10 @@ class CalcLexer(Lexer):
     tokens = {ID, NUMBER, PLUS, MINUS, TIMES, DIVIDE, ASSIGN, COMMA}
     literals = {"(", ")"}
 
-    # String containing ignored characters between tokens.
+    # String containing ignored characters between tokens
     ignore = " \t"
 
-    # Regular expression rules for tokens.
+    # Regular expression rules for tokens
     ID = r"[a-zA-Z_][a-zA-Z0-9_]*"
     PLUS = r"\+"
     MINUS = r"-"
@@ -25,7 +25,7 @@ class CalcLexer(Lexer):
     COMMA = r","
 
     @_(r"\d+")
-    def NUMBER(self, t: Token) -> Token:
+    def NUMBER(self, t: Token):
         t.value = int(t.value)
         return t
 
@@ -33,10 +33,10 @@ class CalcLexer(Lexer):
     ignore_comment = r"\#.*"
 
     @_(r"\n+")
-    def newline(self, t: Token) -> None:
+    def newline(self, t: Token):
         self.lineno += t.value.count("\n")
 
-    def error(self, t: Token) -> None:
+    def error(self, t: Token):
         self.errors.append(t.value[0])
         self.index += 1
 
@@ -49,7 +49,7 @@ class CalcParser(Parser):
 
     def __init__(self) -> None:
         self.names: dict[str, Any] = {}
-        self.errors: list[str] = []
+        self.errors: list[Token] = []
 
     @_("ID ASSIGN expr")
     def statement(self, p: Any) -> None:
@@ -107,12 +107,12 @@ class CalcParser(Parser):
             print(f"Undefined name {p.ID!r}")
             return 0
 
-    def error(self, token):
+    def error(self, token: Token):
         self.errors.append(token)
 
 
-# Test basic recognition of various tokens and literals
 def test_simple():
+    """Test basic recognition of various tokens and literals."""
     lexer = CalcLexer()
     parser = CalcParser()
 
@@ -144,7 +144,6 @@ def test_parse_error():
     result = parser.parse(lexer.tokenize("a 123 4 + 5"))
     assert result == 9
     assert len(parser.errors) == 1
-    print(type(parser.errors[0]))
     assert parser.errors[0].type == "NUMBER"
     assert parser.errors[0].value == 123
 
