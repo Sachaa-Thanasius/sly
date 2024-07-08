@@ -6,10 +6,36 @@
 import enum
 import json
 import struct
+import sys
 from collections import defaultdict
+from collections.abc import Callable, Generator, Iterator
+from typing import TYPE_CHECKING, Optional, SupportsIndex, Union
+
+if sys.version_info >= (3, 12):
+    from typing import override
+elif TYPE_CHECKING:
+    from typing_extensions import override
+else:
+
+    def override(arg: object) -> object:
+        try:
+            arg.__override__ = True
+        except AttributeError:
+            pass
+        return arg
 
 
-def encode_unsigned(value) -> bytes:
+if sys.version_info >= (3, 10):
+    from typing import TypeAlias
+elif TYPE_CHECKING:
+    from typing_extensions import TypeAlias
+else:
+
+    class TypeAlias:
+        pass
+
+
+def encode_unsigned(value: int) -> bytes:
     """Produce an LEB128 encoded unsigned integer."""
 
     parts: list[int] = []
@@ -22,7 +48,7 @@ def encode_unsigned(value) -> bytes:
     return bytes(parts)
 
 
-def encode_signed(value) -> bytes:
+def encode_signed(value: int) -> bytes:
     """Produce a LEB128 encoded signed integer."""
 
     parts: list[int] = []
@@ -47,32 +73,28 @@ assert encode_signed(-624485) == bytes([0x9B, 0xF1, 0x59])
 assert encode_signed(127) == bytes([0xFF, 0x00])
 
 
-def encode_f64(value) -> bytes:
-    """
-    Encode a 64-bit floating point as little endian
-    """
+def encode_f64(value: float) -> bytes:
+    """Encode a 64-bit floating point as little endian."""
+
     return struct.pack("<d", value)
 
 
-def encode_f32(value) -> bytes:
-    """
-    Encode a 32-bit floating point as little endian.
-    """
+def encode_f32(value: float) -> bytes:
+    """Encode a 32-bit floating point as little endian."""
+
     return struct.pack("<f", value)
 
 
-def encode_name(value):
-    """
-    Encode a name as UTF-8
-    """
+def encode_name(value: str) -> bytes:
+    """Encode a name as UTF-8."""
+
     data = value.encode("utf-8")
     return encode_vector(data)
 
 
-def encode_vector(items):
-    """
-    Items is a list of encoded value or bytess
-    """
+def encode_vector(items: Union[bytes, list[bytes]]) -> bytes:
+    """Items is a list of encoded value or bytes."""
+
     if isinstance(items, bytes):
         return encode_unsigned(len(items)) + items
     else:
@@ -80,7 +102,7 @@ def encode_vector(items):
 
 
 # ------------------------------------------------------------
-# Instruction encoding enums.
+# region -------- Instruction encoding enums.
 #
 # Wasm defines 4 core data types [i32, i64, f32, f64].  These type
 # names are used in various places (specifying functions, globals,
@@ -89,36 +111,38 @@ def encode_vector(items):
 # Python enums to set up this arrangement in a clever way that
 # makes it possible to do both of these tasks.
 
-# Metaclass for instruction encoding categories. The class itself
-# can be used as an integer when encoding instructions.
-
 
 class HexEnumMeta(enum.EnumMeta):
-    def __int__(cls):
-        return int(cls._encoding)
+    """Metaclass for instruction encoding categories. The class itself can be used as an integer when encoding
+    instructions.
+    """
+
+    def __int__(self) -> int:
+        return int(self._encoding)
 
     __index__ = __int__
 
-    def __repr__(cls):
+    @override
+    def __repr__(cls) -> str:
         return cls.__name__
 
+    @override
     @classmethod
-    def __prepare__(meta, name, bases, *, encoding=0):
+    def __prepare__(cls, name: str, bases: tuple[type, ...], **kwds: object) -> enum._EnumDict:
         return super().__prepare__(name, bases)
 
-    @staticmethod
-    def __new__(meta, clsname, bases, methods, *, encoding=0):
-        cls = super().__new__(meta, clsname, bases, methods)
-        cls._encoding = encoding
-        return cls
+    def __new__(cls, name: str, bases: tuple[type, ...], namespace: enum._EnumDict, *, encoding: int = 0):
+        return super().__new__(cls, name, bases, namespace)
+
+    def __init__(self, name: str, bases: tuple[type, ...], namespace: enum._EnumDict, *, encoding: int = 0):
+        super().__init__(name, bases, namespace)
+        self._encoding = encoding
 
 
-class HexEnum(enum.IntEnum):
-    def __repr__(self):
+class HexEnum(enum.IntEnum, metaclass=HexEnumMeta):
+    @override
+    def __repr__(self) -> str:
         return f"<{self!s}: 0x{self:x}>"
-
-
-HexEnum.__class__ = HexEnumMeta
 
 
 class i32(HexEnum, encoding=0x7F):
@@ -296,38 +320,48 @@ class global_(HexEnum):
 
 global_.__name__ = "global"
 
-# Special void type for block returns
+
 void = 0x40
+"""Special void type for block returns."""
+
+WasmDataType: TypeAlias = Union[type[i32], type[i64], type[f32], type[f64]]
+
+# endregion
 
 
 # ------------------------------------------------------------
-def encode_function_type(parameters, results):
+def encode_function_type(parameters: list[WasmDataType], results: list[WasmDataType]) -> bytes:
     """
-    parameters is a vector of value types
-    results is a vector value types
+    Parameters
+    ----------
+    parameters: list[WasmDataType]
+        A vector of value types.
+    results: list[WasmDataType]
+        A vector of value types.
     """
+
     enc_parms = bytes(parameters)
     enc_results = bytes(results)
     return b"\x60" + encode_vector(enc_parms) + encode_vector(enc_results)
 
 
-def encode_limits(min, max=None):
+def encode_limits(min: int, max: Optional[int] = None) -> bytes:  # noqa: A002
     if max is None:
         return b"\x00" + encode_unsigned(min)
     else:
         return b"\x01" + encode_unsigned(min) + encode_unsigned(max)
 
 
-def encode_table_type(elemtype, min, max=None):
+def encode_table_type(elemtype: WasmDataType, min: int, max: Optional[int] = None) -> bytes:  # noqa: A002
     return b"\x70" + encode_limits(min, max)
 
 
-def encode_global_type(value_type, mut=True):
+def encode_global_type(value_type: WasmDataType, mut: bool = True) -> bytes:
     return bytes([value_type, mut])
 
 
 # ----------------------------------------------------------------------
-# Instruction builders
+# region -------- Instruction builders
 #
 # Wasm instructions are grouped into different namespaces.  For example:
 #
@@ -343,33 +377,33 @@ def encode_global_type(value_type, mut=True):
 
 
 class SubBuilder:
-    def __init__(self, builder):
+    def __init__(self, builder: "InstructionBuilder"):
         self._builder = builder
 
-    def _append(self, instr):
+    def _append(self, instr: list[SupportsIndex]) -> None:
         self._builder._code.append(instr)
 
 
 class LocalBuilder(SubBuilder):
-    def get(self, localidx):
+    def get(self, localidx: int):
         self._append([local.get, *encode_unsigned(localidx)])
 
-    def set(self, localidx):
+    def set(self, localidx: int):
         self._append([local.set, *encode_unsigned(localidx)])
 
-    def tee(self, localidx):
+    def tee(self, localidx: int):
         self._append([local.tee, *encode_unsigned(localidx)])
 
 
 class GlobalBuilder(SubBuilder):
-    def get(self, glob):
+    def get(self, glob: Union[int, "Global", "ImportGlobal"]):
         if isinstance(glob, int):
             globidx = glob
         else:
             globidx = glob.idx
         self._append([global_.get, *encode_unsigned(globidx)])
 
-    def set(self, glob):
+    def set(self, glob: Union[int, "Global"]):
         if isinstance(glob, int):
             globidx = glob
         else:
@@ -386,44 +420,44 @@ class MemoryBuilder(SubBuilder):
 
 
 class OpBuilder(SubBuilder):
-    _optable = None  # To be supplied by subclasses
+    _optable: type[Union[i32, i64, f32, f64]] = None  # pyright: ignore # To be supplied by subclasses
 
     # Memory ops
-    def load(self, align, offset):
+    def load(self, align: int, offset: int):
         self._append([self._optable.load, *encode_unsigned(align), *encode_unsigned(offset)])
 
-    def load8_s(self, align, offset):
+    def load8_s(self, align: int, offset: int):
         self._append([self._optable.load8_s, *encode_unsigned(align), *encode_unsigned(offset)])
 
-    def load8_u(self, align, offset):
+    def load8_u(self, align: int, offset: int):
         self._append([self._optable.load8_u, *encode_unsigned(align), *encode_unsigned(offset)])
 
-    def load16_s(self, align, offset):
+    def load16_s(self, align: int, offset: int):
         self._append([self._optable.load16_s, *encode_unsigned(align), *encode_unsigned(offset)])
 
-    def load16_u(self, align, offset):
+    def load16_u(self, align: int, offset: int):
         self._append([self._optable.load16_u, *encode_unsigned(align), *encode_unsigned(offset)])
 
-    def load32_s(self, align, offset):
+    def load32_s(self, align: int, offset: int):
         self._append([self._optable.load32_s, *encode_unsigned(align), *encode_unsigned(offset)])
 
-    def load32_u(self, align, offset):
+    def load32_u(self, align: int, offset: int):
         self._append([self._optable.load32_u, *encode_unsigned(align), *encode_unsigned(offset)])
 
-    def store(self, align, offset):
+    def store(self, align: int, offset: int):
         self._append([self._optable.store, *encode_unsigned(align), *encode_unsigned(offset)])
 
-    def store8(self, align, offset):
+    def store8(self, align: int, offset: int):
         self._append([self._optable.store8, *encode_unsigned(align), *encode_unsigned(offset)])
 
-    def store16(self, align, offset):
+    def store16(self, align: int, offset: int):
         self._append([self._optable.store16, *encode_unsigned(align), *encode_unsigned(offset)])
 
-    def store32(self, align, offset):
+    def store32(self, align: int, offset: int):
         self._append([self._optable.store32, *encode_unsigned(align), *encode_unsigned(offset)])
 
-    def __getattr__(self, key):
-        def call():
+    def __getattr__(self, key: str) -> Callable[[], None]:
+        def call() -> None:
             self._append([getattr(self._optable, key)])
 
         return call
@@ -432,32 +466,35 @@ class OpBuilder(SubBuilder):
 class I32OpBuilder(OpBuilder):
     _optable = i32
 
-    def const(self, value):
+    def const(self, value: int):
         self._append([self._optable.const, *encode_signed(value)])
 
 
 class I64OpBuilder(OpBuilder):
     _optable = i64
 
-    def const(self, value):
+    def const(self, value: int):
         self._append([self._optable.const, *encode_signed(value)])
 
 
 class F32OpBuilder(OpBuilder):
     _optable = f32
 
-    def const(self, value):
+    def const(self, value: float):
         self._append([self._optable.const, *encode_f32(value)])
 
 
 class F64OpBuilder(OpBuilder):
     _optable = f64
 
-    def const(self, value):
+    def const(self, value: float):
         self._append([self._optable.const, *encode_f64(value)])
 
 
-def _flatten(instr):
+_NestedListOfIndices: TypeAlias = list[Union["_NestedListOfIndices", SupportsIndex]]
+
+
+def _flatten(instr: _NestedListOfIndices) -> Generator[SupportsIndex]:
     for x in instr:
         if isinstance(x, list):
             yield from _flatten(x)
@@ -465,10 +502,11 @@ def _flatten(instr):
             yield x
 
 
-# High-level class that allows instructions to be easily encoded.
 class InstructionBuilder:
+    """High-level class that allows instructions to be easily encoded."""
+
     def __init__(self):
-        self._code = []
+        self._code: list[list[SupportsIndex]] = []
         self.local = LocalBuilder(self)
         self.global_ = GlobalBuilder(self)
         self.i32 = I32OpBuilder(self)
@@ -477,26 +515,28 @@ class InstructionBuilder:
         self.f64 = F64OpBuilder(self)
 
         # Control-flow stack.
-        self._control = [None]
+        self._control: list[Optional[WasmDataType]] = [None]
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[list[SupportsIndex]]:
         return iter(self._code)
 
-    # Resolve a human-readable label into control-stack index
-    def _resolve_label(self, label):
+    def _resolve_label(self, label: Union[WasmDataType, int]) -> int:
+        """Resolve a human-readable label into control-stack index."""
+
         if isinstance(label, int):
             return label
         index = self._control.index(label)
         return len(label) - 1 - index
 
-    # Control flow instructions
     def unreachable(self):
+        """Control flow instructions."""
+
         self._code.append([0x01])
 
     def nop(self):
         self._code.append([0x01])
 
-    def block_start(self, result_type, label=None):
+    def block_start(self, result_type: WasmDataType, label: Optional[WasmDataType] = None) -> int:
         self._code.append([0x02, result_type])
         self._control.append(label)
         return len(self._control)
@@ -505,40 +545,40 @@ class InstructionBuilder:
         self._code.append([0x0B])
         self._control.pop()
 
-    def loop_start(self, result_type, label=None):
+    def loop_start(self, result_type: WasmDataType, label: Optional[WasmDataType] = None) -> int:
         self._code.append([0x03, result_type])
         self._control.append(label)
         return len(self._control)
 
-    def if_start(self, result_type, label=None):
+    def if_start(self, result_type: WasmDataType, label: Optional[WasmDataType] = None):
         self._code.append([0x04, result_type])
         self._control.append(label)
 
     def else_start(self):
         self._code.append([0x05])
 
-    def br(self, label):
+    def br(self, label: Union[WasmDataType, int]):
         labelidx = self._resolve_label(label)
         self._code.append([0x0C, *encode_unsigned(labelidx)])
 
-    def br_if(self, label):
+    def br_if(self, label: Union[WasmDataType, int]):
         labelidx = self._resolve_label(label)
         self._code.append([0x0D, *encode_unsigned(labelidx)])
 
-    def br_table(self, labels, label):
+    def br_table(self, labels: list[Union[WasmDataType, int]], label: Union[WasmDataType, int]):
         enc_labels = [encode_unsigned(self._resolve_label(idx)) for idx in labels]
         self._code.append([0x0E, *encode_vector(enc_labels), *encode_unsigned(self._resolve_label(label))])
 
     def return_(self):
         self._code.append([0x0F])
 
-    def call(self, func):
+    def call(self, func: Union["ImportFunction", "Function", int]):
         if isinstance(func, (ImportFunction, Function)):
             self._code.append([0x10, *encode_unsigned(func._idx)])
         else:
             self._code.append([0x10, *encode_unsigned(func)])
 
-    def call_indirect(self, typesig):
+    def call_indirect(self, typesig: Union["Type", int]):
         if isinstance(typesig, Type):
             typeidx = typesig.idx
         else:
@@ -552,28 +592,33 @@ class InstructionBuilder:
         self._code.append([0x1B])
 
 
+# endregion
+
+
 class Type:
-    def __init__(self, parms, results, idx):
+    def __init__(self, parms: list[WasmDataType], results: list[WasmDataType], idx: int):
         self.parms = parms
         self.results = results
         self.idx = idx
 
+    @override
     def __repr__(self):
         return f"{self.parms!r} -> {self.results!r}"
 
 
 class ImportFunction:
-    def __init__(self, name, typesig, idx):
+    def __init__(self, name: str, typesig: Type, idx: int):
         self._name = name
         self._typesig = typesig
         self._idx = idx
 
+    @override
     def __repr__(self):
         return f"ImportFunction({self._name}, {self._typesig}, {self._idx})"
 
 
 class Function(InstructionBuilder):
-    def __init__(self, name, typesig, idx, export=True):
+    def __init__(self, name: str, typesig: "Type", idx: int, export: bool = True):
         super().__init__()
         self._name = name
         self._typesig = typesig
@@ -581,87 +626,86 @@ class Function(InstructionBuilder):
         self._export = export
         self._idx = idx
 
+    @override
     def __repr__(self):
         return f"Function({self._name}, {self._typesig}, {self._idx})"
 
-    # Allocate a new local variable of a given type
-    def alloc(self, valuetype):
+    def alloc(self, valuetype: WasmDataType) -> int:
+        """Allocate a new local variable of a given type."""
+
         self._locals.append(valuetype)
-        return len(self.locals) - 1
+        return len(self._locals) - 1
 
 
 class ImportGlobal:
-    def __init__(self, name, valtype, idx):
+    def __init__(self, name: str, valtype: WasmDataType, idx: int):
         self.name = name
         self.valtype = valtype
         self.idx = idx
 
-    def __repr__(self):
+    @override
+    def __repr__(self) -> str:
         return f"ImportGlobal({self.name}, {self.valtype}, {self.idx})"
 
 
 class Global:
-    def __init__(self, name, valtype, initializer, idx):
+    def __init__(self, name: str, valtype: WasmDataType, initializer, idx: int):
         self.name = name
         self.valtype = valtype
         self.initializer = initializer
         self.idx = idx
 
-    def __repr__(self):
+    @override
+    def __repr__(self) -> str:
         return f"Global({self.name}, {self.valtype}, {self.initializer}, {self.idx})"
 
 
 class Module:
     def __init__(self):
-        # Vector of function type signatures.  Signatures are reused
-        # if more than one function has the same signature.
-        self.type_section = []
+        # Vector of function type signatures. Signatures are reused if more than one function has the same signature.
+        self.type_section: list[bytes] = []
 
-        # Vector of imported entities.  These can be functions, globals,
-        # tables, and memories
-        self.import_section = []
+        # Vector of imported entities. These can be functions, globals, tables, and memories.
+        self.import_section: list[bytes] = []
 
-        # There are 4 basic entities within a Wasm file. Functions,
-        # globals, memories, and tables.  Each kind of entity is
-        # stored in a separate list and is indexed by an integer
-        # index starting at 0.   Imported entities must always
-        # go before entities defined in the Wasm module itself.
+        # There are 4 basic entities within a Wasm file: functions, globals, memories, and tables.
+        # Each kind of entity is stored in a separate list and is indexed by an integer index starting at 0.
+        # Imported entities must always go before entities defined in the Wasm module itself.
         self.funcidx = 0
         self.globalidx = 0
         self.memoryidx = 0
         self.tableidx = 0
 
-        self.function_section = []  # Vector of typeidx
-        self.global_section = []  # Vector of globals
-        self.table_section = []  # Vector of tables
-        self.memory_section = []  # Vector of memories
+        self.function_section: list[bytes] = []  # Vector of typeidx
+        self.global_section: list[bytes] = []  # Vector of globals
+        self.table_section: list[bytes] = []  # Vector of tables
+        self.memory_section: list[bytes] = []  # Vector of memories
 
-        # Exported entities.  A module may export functions, globals,
-        # tables, and memories
+        # Exported entities. A module may export functions, globals, tables, and memories.
 
-        self.export_section = []  # Vector of exports
+        self.export_section: list[bytes] = []  # Vector of exports
 
         # Optional start function.  A function that executes upon loading
         self.start_section = None  # Optional start function
 
         # Initialization of table elements
-        self.element_section = []
+        self.element_section: list[bytes] = []
 
         # Code section for function bodies.
-        self.code_section = []
+        self.code_section: list[bytes] = []
 
         # Data section contains data segments
-        self.data_section = []
+        self.data_section: list[bytes] = []
 
         # List of function objects (to help with encoding)
-        self.functions = []
+        self.functions: list[Function] = []
 
         # Output for JS/Html
         self.js_exports = ""
         self.html_exports = ""
-        self.js_imports = defaultdict(dict)
+        self.js_imports: defaultdict[str, dict[str, str]] = defaultdict(dict)
 
-    def add_type(self, parms, results):
+    def add_type(self, parms: list[WasmDataType], results: list[WasmDataType]) -> Type:
         enc = encode_function_type(parms, results)
         if enc in self.type_section:
             return Type(parms, results, self.type_section.index(enc))
@@ -669,7 +713,13 @@ class Module:
             self.type_section.append(enc)
             return Type(parms, results, len(self.type_section) - 1)
 
-    def import_function(self, module, name, parms, results):
+    def import_function(
+        self,
+        module: str,
+        name: str,
+        parms: list[WasmDataType],
+        results: list[WasmDataType],
+    ) -> ImportFunction:
         if len(self.function_section) > 0:
             raise RuntimeError("function imports must go before first function definition")
 
@@ -680,21 +730,21 @@ class Module:
         self.funcidx += 1
         return ImportFunction(f"{module}.{name}", typesig, self.funcidx - 1)
 
-    def import_table(self, module, name, elemtype, min, max=None):
+    def import_table(self, module: str, name: str, elemtype: WasmDataType, min: int, max: Optional[int] = None) -> int:  # noqa: A002
         code = encode_name(module) + encode_name(name) + b"\x01" + encode_table_type(elemtype, min, max)
         self.import_section.append(code)
         self.js_imports[module][name] = "table:"
         self.tableidx += 1
         return self.tableidx - 1
 
-    def import_memtype(self, module, name, min, max=None):
+    def import_memtype(self, module: str, name: str, min: int, max: Optional[int] = None) -> int:  # noqa: A002
         code = encode_name(module) + encode_name(name) + b"\x02" + encode_limits(min, max)
         self.import_section.append(code)
         self.js_imports[module][name] = "memory:"
         self.memoryidx += 1
         return self.memoryidx - 1
 
-    def import_global(self, module, name, value_type):
+    def import_global(self, module: str, name: str, value_type: WasmDataType) -> ImportGlobal:
         if len(self.global_section) > 0:
             raise RuntimeError("global imports must go before first global definition")
 
@@ -704,7 +754,13 @@ class Module:
         self.globalidx += 1
         return ImportGlobal(f"{module}.{name}", value_type, self.globalidx - 1)
 
-    def add_function(self, name, parms, results, export=True):
+    def add_function(
+        self,
+        name: str,
+        parms: list[WasmDataType],
+        results: list[WasmDataType],
+        export: bool = True,
+    ) -> Function:
         typesig = self.add_type(parms, results)
         func = Function(name, typesig, self.funcidx, export)
         self.funcidx += 1
@@ -713,20 +769,27 @@ class Module:
         self.html_exports += f'<p><tt>{name}({", ".join(str(p) for p in parms)}) -> {results[0]!s}</tt></p>\n'
         return func
 
-    def add_table(self, elemtype, min, max=None):
+    def add_table(self, elemtype: WasmDataType, min: int, max: Optional[int] = None) -> int:  # noqa: A002
         self.table_section.append(encode_table_type(elemtype, min, max))
         self.tableidx += 1
         return self.tableidx - 1
 
-    def add_memory(self, min, max=None):
+    def add_memory(self, min: int, max: Optional[int] = None) -> int:  # noqa: A002
         self.memory_section.append(encode_limits(min, max))
         self.memoryidx += 1
         return self.memoryidx - 1
 
-    def add_global(self, name, value_type, initializer, mutable=True, export=True):
-        code = encode_global_type(value_type, mutuable)
+    def add_global(
+        self,
+        name: str,
+        value_type: WasmDataType,
+        initializer,
+        mutable: bool = True,
+        export: bool = True,
+    ) -> Global:
+        code = encode_global_type(value_type, mutable)
         expr = InstructionBuilder()
-        getattr(expr, str(valtype)).const(initializer)
+        getattr(expr, str(value_type)).const(initializer)
         expr.finalize()
         code += expr._code
         self.global_section.append(code)
@@ -735,34 +798,40 @@ class Module:
         self.globalidx += 1
         return Global(name, value_type, initializer, self.globalidx - 1)
 
-    def export_function(self, name, funcidx):
+    def export_function(self, name: str, funcidx: int):
         code = encode_name(name) + b"\x00" + encode_unsigned(funcidx)
         self.export_section.append(code)
         self.js_exports += f"window.{name} = results.instance.exports.{name};\n"
 
-    def export_table(self, name, tableidx):
+    def export_table(self, name: str, tableidx: int):
         code = encode_name(name) + b"\x01" + encode_unsigned(tableidx)
         self.export_section.append(code)
 
-    def export_memory(self, name, memidx):
+    def export_memory(self, name: str, memidx: int):
         code = encode_name(name) + b"\x02" + encode_unsigned(memidx)
         self.export_section.append(code)
 
-    def export_global(self, name, globalidx):
+    def export_global(self, name: str, globalidx: int):
         code = encode_name(name) + b"\x03" + encode_unsigned(globalidx)
         self.export_section.append(code)
 
-    def start_function(self, funcidx):
+    def start_function(self, funcidx: int):
         self.start = encode_unsigned(funcidx)
 
-    def add_element(self, tableidx, expr, funcidxs):
+    def add_element(self, tableidx: int, expr, funcidxs: list[int]):
         code = encode_unsigned(tableidx) + expr.code
         code += encode_vector([encode_unsigned(i) for i in funcidxs])
         self.element_section.append(code)
 
-    def add_function_code(self, locals, expr):
-        # Locals is a list of valtypes [i32, i32, etc...]
-        # expr is an expression representing the actual code (InstructionBuilder)
+    def add_function_code(self, locals: list[WasmDataType], expr: list[list[SupportsIndex]]):  # noqa: A002
+        """
+        Parameters
+        ----------
+        locals: list[WasmDataType]
+            A list of valtypes [i32, i32, etc...].
+        expr: list[list[SupportsIndex]]
+            An expression representing the actual code (InstructionBuilder).
+        """
 
         locs = [encode_unsigned(1) + bytes([loc]) for loc in locals]
         locs_code = encode_vector(locs)
@@ -770,19 +839,19 @@ class Module:
         code = encode_unsigned(len(func_code)) + func_code
         self.code_section.append(code)
 
-    def add_data(self, memidx, expr, data):
+    def add_data(self, memidx: int, expr, data: bytes):
         # data is bytes
         code = encode_unsigned(memidx) + expr.code + encode_vector([data[i : i + 1] for i in range(len(data))])
         self.data_section.append(code)
 
-    def _encode_section_vector(self, sectionid, contents):
+    def _encode_section_vector(self, sectionid: int, contents: list[bytes]) -> bytes:
         if not contents:
             return b""
         contents_code = encode_vector(contents)
         code = bytes([sectionid]) + encode_unsigned(len(contents_code)) + contents_code
-        return code
+        return code  # noqa: RET504
 
-    def encode(self):
+    def encode(self) -> bytes:
         for func in self.functions:
             self.add_function_code(func._locals, func._code)
             if func._export:
@@ -804,12 +873,12 @@ class Module:
         code += self._encode_section_vector(11, self.data_section)
         return code
 
-    def write_wasm(self, modname):
-        with open(f"{modname}.wasm", "wb") as f:
+    def write_wasm(self, modname: str):
+        with open(f"{modname}.wasm", "wb") as f:  # noqa: PTH123
             f.write(self.encode())
 
-    def write_html(self, modname):
-        with open(f"{modname}.html", "w") as f:
+    def write_html(self, modname: str):
+        with open(f"{modname}.html", "w") as f:  # noqa: PTH123
             f.write(
                 js_template.format(
                     module=modname,
@@ -847,7 +916,7 @@ The following exports are made. Access from the JS console.
 """
 
 
-def test1():
+def test1() -> Module:
     mod = Module()
 
     # An external function import.  Note:  All imports MUST go first.
@@ -926,7 +995,7 @@ def test1():
     return mod
 
 
-def test2():
+def test2() -> Module:
     mod = Module()
 
     fact = mod.add_function("fact", [i32], [i32])

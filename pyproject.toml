@@ -132,6 +132,9 @@ unfixable = [
     "ERA", # Prevent unlikely erroneous deletion.
 ]
 
+[tool.ruff.lint.pyupgrade]
+keep-runtime-typing = true
+
 [tool.ruff.lint.per-file-ignores]
 "**/__init__.py" = [
     # Ruff doesn't understand using star imports to export names in a package.
@@ -159,27 +162,22 @@ unfixable = [
     "INP001", # Implicit namespace packages.
 ]
 
-[tool.ruff.lint.pyupgrade]
-keep-runtime-typing = true
-
 
 # ---- Type-checking config
 
 [tool.pyright]
 include = ["src/sly"]
-ignore = ["example", "tests"]
+ignore = ["example/calc*", "example/schcls", "example/wasm/expr.py", "tests"]
 pythonVersion = "3.9"
 pythonPlatform = "All"
 typeCheckingMode = "strict"
 
-defineConstant = { TYPING = true }
-
 reportPrivateUsage = "none"
-reportUnnecessaryIsInstance = "information"     # Account for incorrect input from users.
+reportUnnecessaryIsInstance = "information"    # Account for incorrect input from users.
 reportCallInDefaultInitializer = "warning"
 reportImplicitOverride = "warning"
 reportImportCycles = "error"
 reportPropertyTypeMismatch = "error"
 reportShadowedImports = "error"
-reportUninitializedInstanceVariable = "warning"
+reportUninitializedInstanceVariable = "none"
 reportUnnecessaryTypeIgnoreComment = "warning"

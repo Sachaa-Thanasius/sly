@@ -1356,8 +1356,8 @@ class LRTable:
     ) -> tuple[dict[tuple[int, str], list[tuple[int, LRItem]]], dict[tuple[int, str], list[tuple[int, str]]]]:
         """Determines the lookback and includes relations.
 
-        Extended Summary
-        ----------------
+        Notes
+        -----
         LOOKBACK:
 
         This relation is determined by running the LR(0) state machine forward. For example, starting with a production

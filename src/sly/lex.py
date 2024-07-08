@@ -243,7 +243,7 @@ class Lexer(metaclass=LexerMeta):
     """Characters serving as tokens that are always returned "as is"."""
 
     ignore: str = ""
-    """String containing ignored characters (i.e. between tokens)."""
+    """String containing ignored characters between tokens."""
 
     reflags: int = 0
     regex_module = re
