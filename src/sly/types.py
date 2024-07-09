@@ -8,7 +8,7 @@ execute, e.g. within an `if typing.TYPE_CHECKING: ...` block.
 """
 
 from collections.abc import Callable
-from typing import Any, Protocol, TypeVar, cast, type_check_only
+from typing import Any, Final, Protocol, TypeVar, cast, type_check_only
 
 __all__ = ("_", "subst")
 
@@ -25,5 +25,8 @@ class _SubstitutionDecorator(Protocol):
     def __call__(self, sub: dict[str, str], *extras: dict[str, str]) -> Callable[[_CallableT], _CallableT]: ...
 
 
-_ = cast(_RuleDecorator, object())
-subst = cast(_SubstitutionDecorator, object())
+_: Final = cast(_RuleDecorator, object())
+"""Typing aid for `@_` within `sly.Lexer` and `sly.Parser` subclasses. Do not import at runtime."""
+
+subst: Final = cast(_SubstitutionDecorator, object())
+"""Typing aid for `@subst` within `sly.Parser` subclasses. Do not import at runtime."""

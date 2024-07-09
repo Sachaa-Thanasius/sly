@@ -2,7 +2,7 @@
 
 import sys
 
-from ._typing import Self
+from ._misc import Self
 
 
 class AST:

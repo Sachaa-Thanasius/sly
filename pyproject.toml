@@ -176,14 +176,14 @@ keep-runtime-typing = true
 
 [tool.pyright]
 include = ["src/sly"]
-ignore = ["example/calc*", "example/schcls", "example/wasm/expr.py", "tests"]
+ignore = ["example/calc*", "example/schcls", "tests"]
 pythonVersion = "3.9"
 pythonPlatform = "All"
 typeCheckingMode = "strict"
 
 reportPrivateUsage = "none"                    # Unnecessary noise.
-reportUnnecessaryIsInstance = "information"    # Account for incorrect input from users.
-reportUninitializedInstanceVariable = "none"   # Currently noise.
+reportUnnecessaryIsInstance = "none"           # Accounting for bad input from users.
+reportUninitializedInstanceVariable = "none"   # Occasionally helpful.
 reportCallInDefaultInitializer = "warning"
 reportImplicitOverride = "warning"
 reportImportCycles = "error"

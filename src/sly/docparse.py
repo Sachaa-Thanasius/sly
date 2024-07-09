@@ -1,6 +1,6 @@
 """Support docstring-parsing classes."""
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
     from .lex import Lexer
@@ -22,6 +22,7 @@ class DocParseMeta(type):
     To use this class, you first need to define a lexer and parser:
 
         from sly import Lexer, Parser
+
         class MyLexer(Lexer):
             ...
 
@@ -51,8 +52,8 @@ class DocParseMeta(type):
     '''
 
     if TYPE_CHECKING:
-        lexer: type[Lexer]
-        parser: type[Parser]
+        lexer: ClassVar[type[Lexer]]
+        parser: ClassVar[type[Parser]]
 
     def __new__(cls, clsname: str, bases: tuple[type, ...], namespace: dict[str, Any]):
         if "__doc__" in namespace:

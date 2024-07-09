@@ -48,7 +48,7 @@ if TYPE_CHECKING:
 else:
     FunctionType = type(lambda: None)
 
-from ._typing import CallableT, TypeAlias, override
+from ._misc import MISSING, CallableT, TypeAlias, override
 from .lex import Token
 
 __all__ = ("Parser",)
@@ -120,13 +120,15 @@ class YaccSymbol:
     Also, this is meant be mostly duck type–compatible with `lex.Token`.
     """
 
-    type: str
-    value: Any
-
     if TYPE_CHECKING:
         lineno: Optional[int]
         index: Optional[int]
         end: Optional[int]
+
+    def __init__(self, *, type: str, value: Any = MISSING) -> None:  # noqa: A002
+        self.type = type
+        if value is not MISSING:
+            self.value = value
 
     @override
     def __str__(self) -> str:
@@ -283,9 +285,6 @@ class Production:
 
     reduced: int = 0
 
-    if TYPE_CHECKING:
-        lr0_added: int  # Doesn't always exist.
-
     def __init__(
         self,
         number: int,
@@ -354,6 +353,8 @@ class Production:
         self.lr_items: list[LRItem] = []
         self.lr_next: Optional[LRItem] = None
 
+        self.lr0_added: int = 0
+
     @override
     def __str__(self) -> str:
         if self.prod:
@@ -383,16 +384,14 @@ class Production:
     def lr_item(self, n: int) -> Optional["LRItem"]:
         """Return the nth lr_item from the production (or None if at the end)."""
 
-        # NOTE: This function is never called, otherwise the undefined name below would error.
-
         if n > len(self.prod):
             return None
         p = LRItem(self, n)
+
         # Precompute the list of productions immediately following.
-        try:
-            p.lr_after = Prodnames[p.prod[n + 1]]
-        except (IndexError, KeyError):
-            p.lr_after = []
+        # NOTE: Prodnames isn't global, so this doesn't seem possible. Leaving it just in case.
+        p.lr_after = []
+
         try:
             p.lr_before = p.prod[n - 1]
         except IndexError:
@@ -497,7 +496,7 @@ class Grammar:
 
     def __init__(self, terminals: Collection[str]) -> None:
         # fmt: off
-        self.Productions:       list[Production]            = [None]
+        self.Productions:       list[Production]            = [None]  # pyright: ignore # Reserved spot.
         self.Prodnames:         dict[str, list[Production]] = {}
         self.Prodmap:           dict[str, Production]       = {}
         self.Terminals:         dict[str, list[int]]        = dict({term: [] for term in terminals}, error=[])
@@ -1767,7 +1766,7 @@ def _collect_grammar_rules(func: Callable[..., Any]) -> list[_RawGrammarRule]:
         unwrapped = inspect.unwrap(curr_func)
         filename: str = unwrapped.__code__.co_filename
         lineno_start: int = unwrapped.__code__.co_firstlineno
-        func_rules = cast(list[str], curr_func.rules)  # pyright: ignore [reportFunctionMemberAccess]
+        func_rules = cast(list[str], curr_func.rules)  # pyright: ignore # Validated .rules exists.
         for rule, lineno in zip(func_rules, range(lineno_start + len(func_rules) - 1, 0, -1)):
             syms = rule.split()
             ebnf_prod: list[_RawGrammarRule] = []
@@ -2018,6 +2017,7 @@ class ParserMetaDict(dict[str, Any]):
     @override
     def __setitem__(self, key: str, value: Any) -> None:
         if callable(value) and hasattr(value, "rules"):
+            # Logic for @subst.
             substitutions: Optional[list[dict[str, str]]] = getattr(value, "substitutions", None)
             if substitutions is not None:
                 for sub in substitutions:
@@ -2112,6 +2112,17 @@ class Parser(metaclass=ParserMeta):
         precedence: ClassVar[_NestedConcreteSeqOfStr]
         """Precedence setup. Optionally can be assigned by the user."""
 
+    def __init__(self) -> None:
+        self.state = 0
+        self.lookahead: Optional[Union[Token, YaccSymbol]] = None  # Current lookahead symbol
+        self.given_tokens: Iterator[Token] = MISSING
+        self.statestack: list[int] = [0]
+        self.symstack: list[YaccSymbol] = [YaccSymbol(type="$end")]
+        self._line_positions: dict[int, Optional[int]] = {}  # id: -> lineno
+        self._index_positions: dict[int, tuple[Optional[int], Optional[int]]] = {}  # id: -> (start, end)
+        self.production = MISSING
+        self.errorok = MISSING
+
     @classmethod
     def __validate_tokens(cls) -> bool:
         if not hasattr(cls, "tokens"):
@@ -2135,12 +2146,12 @@ class Parser(metaclass=ParserMeta):
             return True
 
         preclist: list[tuple[str, str, int]] = []
-        if not isinstance(cls.precedence, (list, tuple)):  # pyright: ignore [reportUnnecessaryIsInstance]
+        if not isinstance(cls.precedence, (list, tuple)):
             cls.log.error("precedence must be a list or tuple")
             return False
 
         for level, p in enumerate(cls.precedence, start=1):
-            if not isinstance(p, (list, tuple)):  # pyright: ignore [reportUnnecessaryIsInstance]
+            if not isinstance(p, (list, tuple)):
                 cls.log.error("Bad precedence table entry %r. Must be a list or tuple", p)
                 return False
 
@@ -2148,7 +2159,7 @@ class Parser(metaclass=ParserMeta):
                 cls.log.error("Malformed precedence entry %r. Must be (assoc, term, ..., term)", p)
                 return False
 
-            if not all(isinstance(term, str) for term in p):  # pyright: ignore [reportUnnecessaryIsInstance]
+            if not all(isinstance(term, str) for term in p):
                 cls.log.error("precedence items must be strings")
                 return False
 
@@ -2329,9 +2340,7 @@ class Parser(metaclass=ParserMeta):
 
         del self.statestack[:]
         del self.symstack[:]
-        sym = YaccSymbol()
-        sym.type = "$end"
-        self.symstack.append(sym)
+        self.symstack.append(YaccSymbol(type="$end"))
         self.statestack.append(0)
         self.state = 0
 
@@ -2375,8 +2384,7 @@ class Parser(metaclass=ParserMeta):
                     else:
                         self.lookahead = lookaheadstack.pop()
                     if not self.lookahead:
-                        self.lookahead = YaccSymbol()
-                        self.lookahead.type = "$end"
+                        self.lookahead = YaccSymbol(type="$end")
 
                 # Check the action table
                 ltype = self.lookahead.type
@@ -2408,13 +2416,11 @@ class Parser(metaclass=ParserMeta):
                     # Call the production function
                     pslice._slice = symstack[-plen:] if plen else []
 
-                    sym = YaccSymbol()
-                    sym.type = pname
                     value = p.func(self, pslice)
                     if value is pslice:
                         value = (pname, *(s.value for s in pslice._slice))
 
-                    sym.value = value
+                    sym = YaccSymbol(type=pname, value=value)
 
                     # Record positions
                     if track_positions:
@@ -2484,6 +2490,8 @@ class Parser(metaclass=ParserMeta):
                 # entire parse has been rolled back and we're completely hosed.   The token is
                 # discarded and we just keep going.
 
+                assert self.lookahead
+
                 if len(statestack) <= 1 and self.lookahead.type != "$end":
                     self.lookahead = None
                     self.state = 0
@@ -2507,8 +2515,7 @@ class Parser(metaclass=ParserMeta):
                         continue
 
                     # Create the error symbol for the first time and make it the new lookahead symbol
-                    t = YaccSymbol()
-                    t.type = "error"
+                    t = YaccSymbol(type="error")
 
                     if hasattr(self.lookahead, "lineno"):
                         t.lineno = self.lookahead.lineno

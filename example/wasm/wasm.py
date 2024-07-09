@@ -874,11 +874,11 @@ class Module:
         return code
 
     def write_wasm(self, modname: str):
-        with open(f"{modname}.wasm", "wb") as f:  # noqa: PTH123
+        with open(f"{modname}.wasm", "wb") as f:
             f.write(self.encode())
 
     def write_html(self, modname: str):
-        with open(f"{modname}.html", "w") as f:  # noqa: PTH123
+        with open(f"{modname}.html", "w") as f:
             f.write(
                 js_template.format(
                     module=modname,

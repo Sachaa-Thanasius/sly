@@ -1,3 +1,7 @@
+Version 0.6-
+------------
+07/08/2024 See the revision history on GitHub to get an idea of what's changed.
+
 Version 0.5
 -----------
 10/25/2022 ***IMPORTANT NOTE*** This is the last release to be made

@@ -1,8 +1,8 @@
-"""Module that centralizes importing, initializing, and shimming of necessary typing-related symbols."""
+"""Module with bits and bobs, like internal sentinels and typing-relates symbols/shims."""
 
 import sys
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, Final, TypeVar
 
 if sys.version_info >= (3, 9, 2):  # noqa: UP036 # Users might still be on 3.9.0.
     from types import GenericAlias as _GenericAlias
@@ -16,7 +16,7 @@ else:  # pragma: no cover
     from typing import _GenericAlias
 
 
-__all__ = ("override", "Self", "TypeAlias")
+__all__ = ("MISSING", "Self", "TypeAlias", "override")
 
 
 CallableT = TypeVar("CallableT", bound=Callable[..., Any])
@@ -68,3 +68,13 @@ else:  # pragma: <3.10 cover
 
     class TypeAlias(metaclass=_PlaceholderMeta):
         pass
+
+
+class _Missing:
+    @override
+    def __repr__(self) -> str:
+        return "<MISSING>"
+
+
+MISSING: Final[Any] = _Missing()
+"""Internal sentinel."""

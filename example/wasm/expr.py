@@ -38,15 +38,22 @@ The full grammar:
          | if expr then expr else expr
          | NUMBER
 
-Note: This is implemented as one-pass compiler with no intermediate AST.
-Some of the grammar rules have to be written in a funny way to make this
-work.  If doing this for real, I'd probably build an AST and construct
-Wasm code through AST walking.
+Note: This is implemented as one-pass compiler with no intermediate AST. Some of the grammar rules have to be written
+in a funny way to make this work. If doing this for real, I'd probably build an AST and construct Wasm code through
+AST walking.
 """
+# pyright: basic, reportUndefinedVariable=none, reportIndexIssue=none, reportAssignmentType=none
+# pyright: reportRedeclaration=none
+
+from typing import TYPE_CHECKING
 
 from sly import Lexer, Parser
+from sly.lex import Token
 
 import wasm
+
+if TYPE_CHECKING:
+    from sly.types import _
 
 
 class ExprLexer(Lexer):
@@ -88,10 +95,10 @@ class ExprLexer(Lexer):
     ignore_comment = r"#.*\n"
 
     # Extra action for newlines
-    def ignore_newline(self, t):
+    def ignore_newline(self, t: Token) -> None:
         self.lineno += t.value.count("\n")
 
-    def error(self, t):
+    def error(self, t: Token) -> None:
         print(f"Illegal character '{t.value[0]}'")
         self.index += 1
 
