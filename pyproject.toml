@@ -5,6 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "sly"
 description = "SLY - Sly Lex Yacc"
+version = "0.6.0"
 requires-python = ">=3.9"
 readme = "README.rst"
 license = "BSD-3-Clause"
@@ -23,14 +24,10 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Typing :: Typed",
 ]
-dynamic = ["version"]
 
 [project.urls]
 Homepage = "https://github.com/Sachaa-Thanasius/sly"
 Documentation = "https://sly.readthedocs.io/en/latest/"
-
-[tool.hatch.version]
-path = "src/sly/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sly"]

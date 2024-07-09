@@ -1778,7 +1778,7 @@ def _collect_grammar_rules(func: Callable[..., Any]) -> list[_RawGrammarRule]:
         unwrapped = inspect.unwrap(curr_func)
         filename: str = unwrapped.__code__.co_filename
         lineno_start: int = unwrapped.__code__.co_firstlineno
-        func_rules = cast(list[str], curr_func.rules)  # pyright: ignore # Validated .rules exists.
+        func_rules = cast(list[str], curr_func.rules)  # pyright: ignore # Pre-confirmed .rules exists.
         for rule, lineno in zip(func_rules, range(lineno_start + len(func_rules) - 1, 0, -1)):
             syms = rule.split()
             ebnf_prod: list[_RawGrammarRule] = []
@@ -2037,7 +2037,7 @@ class ParserMetaDict(dict[str, Any]):
                     subst_func = FunctionType(
                         value.__code__, value.__globals__, subst_name, value.__defaults__, value.__closure__
                     )
-                    subst_func.rules = [  # pyright: ignore
+                    subst_func.rules = [  # pyright: ignore # Runtime attribute assignment.
                         Template(rule_templ).substitute(sub) for rule_templ in reversed(value.rules)
                     ]
                     self.__chain_rules(subst_name, subst_func)
@@ -2106,9 +2106,27 @@ _NestedConcreteSeqOfStr: TypeAlias = Union[list[_ConcreteSeqOfStr], tuple[_Concr
 
 
 class Parser(metaclass=ParserMeta):
+    """The class used for recognizing language syntax specified as a context free grammar.
+
+    Attributes
+    ----------
+    errorok: bool
+        Error status.
+    given_tokens: Iterator[Token]
+        Input tokens.
+    lookahead: Optional[Union[Token, YaccSymbol]]
+        Current lookahead symbol. Be careful with this.
+    """
+
     # ---- These attributes may be redefined in subclasses.
-    track_positions: ClassVar[bool] = True
-    """Whether position information is automatically tracked."""
+    if TYPE_CHECKING:
+        tokens: ClassVar[set[str]]
+        """Lexing tokens. Must be assigned in a subclass by a user."""
+
+        precedence: ClassVar[_NestedConcreteSeqOfStr]
+        """Precedence definition as a tuple/list containing tuples/lists of strings. Can be assigned in a subclass by a
+        user.
+        """
 
     log = SlyLogger(sys.stderr)
     """Logging object where debugging/diagnostic messages are sent."""
@@ -2116,24 +2134,20 @@ class Parser(metaclass=ParserMeta):
     debugfile: ClassVar[Optional[str]] = None
     """Debugging filename where parsetab.out data can be written."""
 
+    track_positions: ClassVar[bool] = True
+    """Whether position information is automatically tracked."""
+
     error_count: ClassVar[int] = 3
     """The number of symbols that must be shifted to leave recovery mode. Yacc config knob."""
 
-    if TYPE_CHECKING:
-        tokens: ClassVar[set[str]]
-        """Lexing tokens. Must be assigned by the user."""
-
-        precedence: ClassVar[_NestedConcreteSeqOfStr]
-        """Precedence setup. Optionally can be assigned by the user."""
-
     def __init__(self) -> None:
+        self.lookahead: Optional[Union[Token, YaccSymbol]] = None
+        self.given_tokens: Iterator[Token] = MISSING
+        self.errorok: bool = MISSING
+
         # ---- Internal bookkeeping attributes
         # Current state
         self.state: int = 0
-        # Current lookahead symbol
-        self.lookahead: Optional[Union[Token, YaccSymbol]] = None
-        # Input tokens
-        self.given_tokens: Iterator[Token] = MISSING
         # Stack of parsing states
         self.statestack: list[int] = [0]
         # Stack of grammar symbols
@@ -2144,8 +2158,6 @@ class Parser(metaclass=ParserMeta):
         self._index_positions: dict[int, tuple[Optional[int], Optional[int]]] = {}
         # Current production
         self.production: Production = MISSING
-        # Error status
-        self.errorok: bool = MISSING
 
     @classmethod
     def __validate_tokens(cls) -> bool:
@@ -2375,12 +2387,11 @@ class Parser(metaclass=ParserMeta):
     def parse(self, tokens: Iterator[Token]) -> Any:
         """Parse the given input tokens."""
 
-        self.lookahead: Optional[Union[Token, YaccSymbol]] = None  # Current lookahead symbol
+        self.lookahead = None  # Current lookahead symbol
         lookaheadstack: list[Any] = []  # Stack of lookahead symbols
         actions = self._lrtable.lr_action  # Local reference to action table (to avoid lookup on self.)
         goto = self._lrtable.lr_goto  # Local reference to goto table (to avoid lookup on self.)
-        # Local reference to production list (to avoid lookup on self.)
-        prod: list[Production] = self._grammar.Productions
+        prod = self._grammar.Productions  # Local reference to production list (to avoid lookup on self.)
         defaulted_states = self._lrtable.defaulted_states  # Local reference to defaulted states
         pslice = YaccProduction(None)  # Production object passed to grammar rules
         errorcount = 0  # Used during error recovery
@@ -2397,8 +2408,8 @@ class Parser(metaclass=ParserMeta):
         # Set up position tracking
         track_positions = self.track_positions
         if not hasattr(self, "_line_positions"):
-            self._line_positions: dict[int, Optional[int]] = {}  # id: -> lineno
-            self._index_positions: dict[int, tuple[Optional[int], Optional[int]]] = {}  # id: -> (start, end)
+            self._line_positions = {}  # id: -> lineno
+            self._index_positions = {}  # id: -> (start, end)
 
         errtoken = None  # Err token
         while True:
@@ -2543,15 +2554,14 @@ class Parser(metaclass=ParserMeta):
                         continue
 
                     # Create the error symbol for the first time and make it the new lookahead symbol
-                    t = YaccSymbol(type="error")
-
+                    t = YaccSymbol(type="error", value=self.lookahead)
                     if hasattr(self.lookahead, "lineno"):
                         t.lineno = self.lookahead.lineno
                     if hasattr(self.lookahead, "index"):
                         t.index = self.lookahead.index
                     if hasattr(self.lookahead, "end"):
                         t.end = self.lookahead.end
-                    t.value = self.lookahead
+
                     lookaheadstack.append(self.lookahead)
                     self.lookahead = t
                 else:

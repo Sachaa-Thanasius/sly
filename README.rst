@@ -49,7 +49,7 @@ has contributed to it over the years. --Dave
 Requirements
 ------------
 
-SLY requires the use of Python 3.6 or greater.  Older versions
+SLY requires the use of Python 3.9 or greater.  Older versions
 of Python are not supported.
 
 An Example

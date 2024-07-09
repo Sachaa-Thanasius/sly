@@ -71,6 +71,8 @@ else:  # pragma: <3.10 cover
 
 
 class _Missing:
+    __slots__ = ()
+
     @override
     def __repr__(self) -> str:
         return "<MISSING>"

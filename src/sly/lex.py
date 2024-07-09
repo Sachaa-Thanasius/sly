@@ -246,6 +246,18 @@ class LexerMeta(type):
 
 
 class Lexer(metaclass=LexerMeta):
+    """The class used to break input text into a collection of tokens specified by regular expression rules.
+
+    Attributes
+    ----------
+    text: str
+        The text being lexed. Populated via `tokenize()`.
+    index: int
+        Current index of the lexer within the text.
+    lineno: int
+        Current line number of the lexer within the text.
+    """
+
     # ---- These attributes may be redefined in subclasses.
     tokens: ClassVar[set[str]] = set()
     """Set of token names. This is always required."""
@@ -272,9 +284,7 @@ class Lexer(metaclass=LexerMeta):
 
     def __init__(self) -> None:
         # ---- Public interface
-        # Text being lexed.
         self.text: str = MISSING
-        # Position information.
         self.index: int = -1
         self.lineno: int = -1
 
