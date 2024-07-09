@@ -100,7 +100,7 @@ select = [
     "RUF",
 ]
 extend-ignore = [
-    "S101",   # Use of assert here is a known quantity for typing cases.
+    "S101",   # Use of assert here is a known quantity for typing cases. Safe to optimize out.
     "SIM105", # Suppressable exception. contextlib.suppress is a stylistic choice with overhead.
     "C90",    # McCabe complexity.
     "PD011",  # Erroneous issue that triggers for any .values attribute access at all.
@@ -129,7 +129,7 @@ extend-ignore = [
     "ERA001", # Leave commented code alone.
     "SIM108", # Readability: Don't always shorten to ternary.
     "RUF002", # Leave my en dashes alone.
-    "PTH123", # builtin open() is fine.
+    "PTH123", # Builtin open() is fine.
 ]
 unfixable = [
     "ERA", # Prevent unlikely erroneous deletion.

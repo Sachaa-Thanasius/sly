@@ -42,7 +42,7 @@ from ._misc import MISSING, CallableT, Self, TypeAlias, override
 
 _TokenMatchAction: TypeAlias = Callable[["Lexer", "Token"], Optional["Token"]]
 
-__all__ = ("Lexer", "LexerStateChange")
+__all__ = ("Lexer",)
 
 
 # ============================================================================
@@ -211,6 +211,10 @@ def _match_action_decorator(pattern: str, *extra: str) -> Callable[[CallableT], 
 class LexerMeta(type):
     """Metaclass for collecting lexing rules."""
 
+    _remap: dict[tuple[str, Any], Any]
+    _before: dict[str, str]
+    _delete: list[str]
+
     if TYPE_CHECKING:
         # Created by _build().
         _rules: list[tuple[str, Union[str, _TokenMatchAction]]]
@@ -230,21 +234,19 @@ class LexerMeta(type):
 
         # Create attributes for use in the actual class body
         real_namespace = {str(key): (str(val) if isinstance(val, TokenStr) else val) for key, val in namespace.items()}
-        return super().__new__(cls, clsname, bases, real_namespace, **kwds)
-
-    def __init__(self, clsname: str, bases: tuple[type, ...], namespace: LexerMetaDict, **kwds: object) -> None:
-        super().__init__(clsname, bases, namespace, **kwds)
+        self = super().__new__(cls, clsname, bases, real_namespace, **kwds)
 
         # Attach various metadata to the class
         self._remap = namespace.remap
         self._before = namespace.before
         self._delete = namespace.delete
-
         self._build(dict(namespace))  # pyright: ignore # This method should always exist in Lexer subclasses.
+
+        return self
 
 
 class Lexer(metaclass=LexerMeta):
-    # These attributes may be redefined in subclasses.
+    # ---- These attributes may be redefined in subclasses.
     tokens: ClassVar[set[str]] = set()
     """Set of token names. This is always required."""
 
@@ -264,17 +266,19 @@ class Lexer(metaclass=LexerMeta):
     _delete: ClassVar[list[str]] = []
     _remap: ClassVar[dict[tuple[str, Any], Any]] = {}
 
-    # Internal attributes
+    # ---- Internal attributes
     __state_stack: Optional[list[type[Self]]] = None
     __set_state: Optional[Callable[[type[Self]], None]] = None
 
     def __init__(self) -> None:
-        # Public interface
+        # ---- Public interface
+        # Text being lexed.
         self.text: str = MISSING
+        # Position information.
         self.index: int = -1
         self.lineno: int = -1
 
-        # Private interface
+        # ---- Internal backtracking-related functions
         self.mark: Callable[[], None] = MISSING
         self.accept: Callable[[], None] = MISSING
         self.reject: Callable[[], None] = MISSING
@@ -448,6 +452,8 @@ class Lexer(metaclass=LexerMeta):
         self.begin(self.__state_stack.pop())
 
     def tokenize(self, text: str, lineno: int = 1, index: int = 0) -> Generator[Token]:
+        """Tokenize the given text."""
+
         _ignored_tokens: set[str] = MISSING
         _master_re: re.Pattern[str] = MISSING
         _ignore: str = MISSING
@@ -455,7 +461,7 @@ class Lexer(metaclass=LexerMeta):
         _literals: set[str] = MISSING
         _remapping: dict[str, dict[str, str]] = MISSING
 
-        # --- Support for state changes
+        # ---- Support for state changes
         def _set_state(cls: type[Self]) -> None:
             nonlocal _ignored_tokens, _master_re, _ignore, _token_funcs, _literals, _remapping
             _ignored_tokens = cls._ignored_tokens
@@ -468,7 +474,7 @@ class Lexer(metaclass=LexerMeta):
         self.__set_state = _set_state
         _set_state(type(self))
 
-        # --- Support for backtracking
+        # ---- Support for backtracking
         _mark_stack: list[tuple[type[Self], int, int]] = []
 
         def _mark() -> None:
@@ -488,7 +494,7 @@ class Lexer(metaclass=LexerMeta):
 
         self.reject = _reject
 
-        # --- Main tokenization function
+        # ---- Main tokenization function
         self.text = text
         try:
             while True:

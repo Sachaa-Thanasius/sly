@@ -1,7 +1,7 @@
 SLY (Sly Lex-Yacc)
 ==================
 
-**Note: This is a fork that attempts typing the original package, be a bit
+**Note: This is a fork that attempts to type the original package, be a bit
 more up to date, and possibly expand functionality in small ways.**
 
 SLY is a 100% Python implementation of the lex and yacc tools

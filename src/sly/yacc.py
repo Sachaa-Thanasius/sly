@@ -220,8 +220,7 @@ class YaccProduction:
         if name in self._namemap:
             return self._namemap[name](self._slice)
         else:
-            nameset = "{" + ", ".join(self._namemap) + "}"
-            msg = f"No symbol {name}. Must be one of {nameset}."
+            msg = f"No symbol {name}. Must be one of {{{', '.join(self._namemap)}}}."
             raise AttributeError(msg)
 
     @override
@@ -604,13 +603,14 @@ class Grammar:
             if syms[-2] != "%prec":
                 msg = f"{file}:{line}: Syntax error. %prec can only appear at the end of a grammar rule"
                 raise GrammarError(msg)
+
             precname = syms[-1]
             prodprec = self.Precedence.get(precname)
             if not prodprec:
                 msg = f"{file}:{line}: Nothing known about the precedence of {precname!r}"
                 raise GrammarError(msg)
-            else:
-                self.UsedPrecedence.add(precname)
+
+            self.UsedPrecedence.add(precname)
             del syms[-2:]  # Drop %prec from the rule
         else:
             # If no %prec, precedence is determined by the rightmost terminal symbol
@@ -2053,6 +2053,8 @@ class ParserMetaDict(dict[str, Any]):
         raise KeyError
 
     def __chain_rules(self, key: str, value: Any) -> None:
+        """Link rules with matching names, as long as they are actually rules."""
+
         if key in self:
             value.next_func = self[key]
             if not hasattr(value.next_func, "rules"):
@@ -2061,10 +2063,10 @@ class ParserMetaDict(dict[str, Any]):
 
 
 def _substitute_decorator(sub: dict[str, str], *extra: dict[str, str]) -> Callable[[CallableT], CallableT]:
-    subs = [sub, *extra]
+    substitutions = [sub, *extra]
 
     def decorate(func: CallableT) -> CallableT:
-        func.substitutions = subs  # pyright: ignore # Runtime attribute assignment.
+        func.substitutions = substitutions  # pyright: ignore # Runtime attribute assignment.
         return func
 
     return decorate
@@ -2094,11 +2096,9 @@ class ParserMeta(type):
     def __new__(cls, clsname: str, bases: tuple[type, ...], namespace: ParserMetaDict, **kwds: object):
         del namespace["_"]
         del namespace["subst"]
-        return super().__new__(cls, clsname, bases, namespace, **kwds)
-
-    def __init__(self, clsname: str, bases: tuple[type, ...], namespace: ParserMetaDict, **kwds: object) -> None:
-        super().__init__(clsname, bases, namespace, **kwds)
+        self = super().__new__(cls, clsname, bases, namespace, **kwds)
         self._build(list(namespace.items()))  # pyright: ignore # This method should always exist in Parser subclasses.
+        return self
 
 
 _ConcreteSeqOfStr: TypeAlias = Union[list[str], tuple[str, ...]]
@@ -2106,16 +2106,17 @@ _NestedConcreteSeqOfStr: TypeAlias = Union[list[_ConcreteSeqOfStr], tuple[_Concr
 
 
 class Parser(metaclass=ParserMeta):
-    track_positions: bool = True
+    # ---- These attributes may be redefined in subclasses.
+    track_positions: ClassVar[bool] = True
     """Whether position information is automatically tracked."""
 
     log = SlyLogger(sys.stderr)
     """Logging object where debugging/diagnostic messages are sent."""
 
-    debugfile: Optional[str] = None
+    debugfile: ClassVar[Optional[str]] = None
     """Debugging filename where parsetab.out data can be written."""
 
-    error_count: int = 3
+    error_count: ClassVar[int] = 3
     """The number of symbols that must be shifted to leave recovery mode. Yacc config knob."""
 
     if TYPE_CHECKING:
@@ -2126,15 +2127,25 @@ class Parser(metaclass=ParserMeta):
         """Precedence setup. Optionally can be assigned by the user."""
 
     def __init__(self) -> None:
-        self.state = 0
-        self.lookahead: Optional[Union[Token, YaccSymbol]] = None  # Current lookahead symbol
+        # ---- Internal bookkeeping attributes
+        # Current state
+        self.state: int = 0
+        # Current lookahead symbol
+        self.lookahead: Optional[Union[Token, YaccSymbol]] = None
+        # Input tokens
         self.given_tokens: Iterator[Token] = MISSING
+        # Stack of parsing states
         self.statestack: list[int] = [0]
+        # Stack of grammar symbols
         self.symstack: list[YaccSymbol] = [YaccSymbol(type="$end")]
-        self._line_positions: dict[int, Optional[int]] = {}  # id: -> lineno
-        self._index_positions: dict[int, tuple[Optional[int], Optional[int]]] = {}  # id: -> (start, end)
-        self.production = MISSING
-        self.errorok = MISSING
+        # Position tracker: id -> lineno
+        self._line_positions: dict[int, Optional[int]] = {}
+        # Position tracker: id -> (start, end)
+        self._index_positions: dict[int, tuple[Optional[int], Optional[int]]] = {}
+        # Current production
+        self.production: Production = MISSING
+        # Error status
+        self.errorok: bool = MISSING
 
     @classmethod
     def __validate_tokens(cls) -> bool:
@@ -2378,8 +2389,8 @@ class Parser(metaclass=ParserMeta):
         self.given_tokens = tokens
         statestack: list[int] = []  # Stack of parsing states
         self.statestack = statestack
-        symstack: list[YaccSymbol] = []
-        self.symstack = symstack  # Stack of grammar symbols
+        symstack: list[YaccSymbol] = []  # Stack of grammar symbols
+        self.symstack = symstack
         pslice._stack = symstack  # Associate the stack with the production
         self.restart()
 
