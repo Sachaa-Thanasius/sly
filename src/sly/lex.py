@@ -40,8 +40,6 @@ from typing import TYPE_CHECKING, Any, Callable, ClassVar, Optional, Union
 
 from ._misc import MISSING, CallableT, Self, TypeAlias, override
 
-_TokenMatchAction: TypeAlias = Callable[["Lexer", "Token"], Optional["Token"]]
-
 __all__ = ("Lexer",)
 
 
@@ -206,6 +204,9 @@ def _match_action_decorator(pattern: str, *extra: str) -> Callable[[CallableT], 
         return func
 
     return decorate
+
+
+_TokenMatchAction: TypeAlias = Callable[["Lexer", Token], Optional[Token]]
 
 
 class LexerMeta(type):
