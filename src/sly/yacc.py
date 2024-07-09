@@ -2,9 +2,9 @@
 # -----------------------------------------------------------------------------
 # sly: yacc.py
 #
-# Copyright (C) 2024 Sachaa-Thanasius
 # Copyright (C) 2016-2018
 # David M. Beazley (Dabeaz LLC)
+# Copyright (C) 2024, Sachaa-Thanasius
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -38,7 +38,7 @@ import inspect
 import sys
 import threading
 from collections import defaultdict
-from collections.abc import Callable, Collection, Generator, Iterator, Sequence
+from collections.abc import Callable, Collection, Generator, Iterator
 from functools import reduce
 from string import Template
 from typing import TYPE_CHECKING, Any, ClassVar, Optional, TextIO, Union, cast
@@ -178,7 +178,8 @@ class YaccProduction:
             lineno = getattr(tok, "lineno", None)
             if lineno:
                 return lineno
-        raise AttributeError("No line number found")
+        msg = "No line number found."
+        raise AttributeError(msg)
 
     @property
     def index(self) -> Any:
@@ -186,7 +187,8 @@ class YaccProduction:
             index = getattr(tok, "index", None)
             if index is not None:
                 return index
-        raise AttributeError("No index attribute found")
+        msg = "No index attribute found."
+        raise AttributeError(msg)
 
     @property
     def end(self) -> Any:
@@ -219,14 +221,16 @@ class YaccProduction:
             return self._namemap[name](self._slice)
         else:
             nameset = "{" + ", ".join(self._namemap) + "}"
-            raise AttributeError(f"No symbol {name}. Must be one of {nameset}.")
+            msg = f"No symbol {name}. Must be one of {nameset}."
+            raise AttributeError(msg)
 
     @override
     def __setattr__(self, name: str, value: object) -> None:
         if name[:1] == "_":
             super().__setattr__(name, value)
         else:
-            raise AttributeError(f"Can't reassign the value of attribute {name!r}")
+            msg = f"Can't reassign the value of attribute {name!r}."
+            raise AttributeError(msg)
 
 
 # ============================================================================
@@ -267,8 +271,8 @@ class Production:
         Production number.
     name: str
         Name of the production, e.g. "expr".
-    prod: Sequence[str]
-        A list of symbols on the right side, e.g. ["expr","PLUS","term"].
+    prod: tuple[str, ...]
+        A list of symbols on the right side, e.g. ("expr", "PLUS", "term").
     prec: tuple[str, int]
         Production precedence level.
     func: Callable
@@ -296,7 +300,7 @@ class Production:
         line: int = 0,
     ) -> None:
         self.name = name
-        self.prod: Sequence[str] = tuple(prod)
+        self.prod: tuple[str, ...] = tuple(prod)
         self.number = number
         self.func = func
         self.file = file
@@ -374,10 +378,6 @@ class Production:
     def __len__(self) -> int:
         return len(self.prod)
 
-    def __nonzero__(self):
-        raise RuntimeError("Used")
-        return 1
-
     def __getitem__(self, index: int) -> str:
         return self.prod[index]
 
@@ -435,7 +435,7 @@ class LRItem:
 
     def __init__(self, p: Production, n: int) -> None:
         self.name: str = p.name
-        self.prod: tuple[str, ...] = (*p.prod[:n], ".", *p.prod[n:])
+        self.prod: tuple[str, ...] = p.prod[:n] + (".",) + p.prod[n:]
         self.number: int = p.number
         self.lr_index: int = n
         self.lookaheads: dict[int, list[str]] = {}
@@ -535,11 +535,14 @@ class Grammar:
         """
 
         if self.Productions != [None]:
-            raise RuntimeError("Must call set_precedence() before add_production()")
+            msg = "Must call set_precedence() before add_production()."
+            raise RuntimeError(msg)
         if term in self.Precedence:
-            raise GrammarError(f"Precedence already specified for terminal {term!r}")
+            msg = f"Precedence already specified for terminal {term!r}."
+            raise GrammarError(msg)
         if assoc not in {"left", "right", "nonassoc"}:
-            raise GrammarError(f'Associativity of {term!r} must be one of "left","right", or "nonassoc"')
+            msg = f'Associativity of {term!r} must be one of "left", "right", or "nonassoc".'
+            raise GrammarError(msg)
 
         self.Precedence[term] = (assoc, level)
 
@@ -575,18 +578,19 @@ class Grammar:
         """
 
         if prodname in self.Terminals:
-            raise GrammarError(f"{file}:{line}: Illegal rule name {prodname!r}. Already defined as a token")
+            msg = f"{file}:{line}: Illegal rule name {prodname!r}. Already defined as a token."
+            raise GrammarError(msg)
         if prodname == "error":
-            raise GrammarError(f"{file}:{line}: Illegal rule name {prodname!r}. error is a reserved word")
+            msg = f"{file}:{line}: Illegal rule name {prodname!r}. error is a reserved word."
+            raise GrammarError(msg)
 
         # Look for literal tokens
         for n, s in enumerate(syms):
             if s[0] in "'\"" and s[0] == s[-1]:
                 c = s[1:-1]
                 if len(c) != 1:
-                    raise GrammarError(
-                        f"{file}:{line}: Literal token {s} in rule {prodname!r} may only be a single character"
-                    )
+                    msg = f"{file}:{line}: Literal token {s} in rule {prodname!r} may only be a single character."
+                    raise GrammarError(msg)
                 if c not in self.Terminals:
                     self.Terminals[c] = []
                 syms[n] = c
@@ -595,13 +599,16 @@ class Grammar:
         # Determine the precedence level
         if "%prec" in syms:
             if syms[-1] == "%prec":
-                raise GrammarError(f"{file}:{line}: Syntax error. Nothing follows %%prec")
+                msg = f"{file}:{line}: Syntax error. Nothing follows %%prec"
+                raise GrammarError(msg)
             if syms[-2] != "%prec":
-                raise GrammarError(f"{file}:{line}: Syntax error. %prec can only appear at the end of a grammar rule")
+                msg = f"{file}:{line}: Syntax error. %prec can only appear at the end of a grammar rule"
+                raise GrammarError(msg)
             precname = syms[-1]
             prodprec = self.Precedence.get(precname)
             if not prodprec:
-                raise GrammarError(f"{file}:{line}: Nothing known about the precedence of {precname!r}")
+                msg = f"{file}:{line}: Nothing known about the precedence of {precname!r}"
+                raise GrammarError(msg)
             else:
                 self.UsedPrecedence.add(precname)
             del syms[-2:]  # Drop %prec from the rule
@@ -614,7 +621,8 @@ class Grammar:
         map_ = f"{prodname} -> {syms}"
         if map_ in self.Prodmap:
             m = self.Prodmap[map_]
-            raise GrammarError(f"{file}:{line}: Duplicate rule {m}. Previous definition at {m.file}:{m.line}")
+            msg = f"{file}:{line}: Duplicate rule {m}. Previous definition at {m.file}:{m.line}"
+            raise GrammarError(msg)
 
         # From this point on, everything is valid. Create a new Production instance
         pnumber = len(self.Productions)
@@ -657,7 +665,8 @@ class Grammar:
             start = self.Productions[1].name
 
         if start not in self.Nonterminals:
-            raise GrammarError(f"start symbol {start} undefined")
+            msg = f"Start symbol {start!r} undefined."
+            raise GrammarError(msg)
         self.Productions[0] = Production(0, "S'", [start])
         self.Nonterminals[start].append(0)
         self.Start = start
@@ -805,7 +814,7 @@ class Grammar:
 
         return unused
 
-    def _first(self, beta: Sequence[str]) -> list[str]:
+    def _first(self, beta: tuple[str, ...]) -> list[str]:
         """Compute the value of FIRST1(beta) where beta is a tuple of symbols.
 
         Extended Summary
@@ -1645,7 +1654,8 @@ class LRTable:
                                         f"rule {st_actionp[a].number} ({st_actionp[a]})"
                                     )
                                 else:
-                                    raise LALRError(f"Unknown conflict in state {st}")
+                                    msg = f"Unknown conflict in state {st}."
+                                    raise LALRError(msg)
                             else:
                                 st_action[a] = -p.number
                                 st_actionp[a] = p
@@ -1664,7 +1674,8 @@ class LRTable:
                                 # Whoa have a shift/reduce or shift/shift conflict
                                 if r > 0:
                                     if r != j:
-                                        raise LALRError(f"Shift/shift conflict in state {st}")
+                                        msg = f"Shift/shift conflict in state {st}."
+                                        raise LALRError(msg)
                                 elif r <= 0:
                                     # Do a precedence check.
                                     #   -  if precedence of reduce rule is higher, we reduce.
@@ -1689,7 +1700,8 @@ class LRTable:
                                             self.sr_conflicts.append((st, a, "reduce"))
 
                                 else:
-                                    raise LALRError(f"Unknown conflict in state {st}")
+                                    msg = f"Unknown conflict in state {st}."
+                                    raise LALRError(msg)
                             else:
                                 st_action[a] = j
                                 st_actionp[a] = p
@@ -2044,7 +2056,8 @@ class ParserMetaDict(dict[str, Any]):
         if key in self:
             value.next_func = self[key]
             if not hasattr(value.next_func, "rules"):
-                raise GrammarError(f"Redefinition of {key}. Perhaps an earlier {key} is missing @_")
+                msg = f"Redefinition of {key}. Perhaps an earlier {key} is missing `@_`."
+                raise GrammarError(msg)
 
 
 def _substitute_decorator(sub: dict[str, str], *extra: dict[str, str]) -> Callable[[CallableT], CallableT]:
@@ -2184,7 +2197,8 @@ class Parser(metaclass=ParserMeta):
         errors: list[str] = []
         # Check for non-empty symbols
         if not rules:
-            raise YaccError("No grammar rules are defined")
+            msg = "No grammar rules are defined."
+            raise YaccError(msg)
 
         grammar = Grammar(cls.tokens)
 
@@ -2248,7 +2262,8 @@ class Parser(metaclass=ParserMeta):
 
         cls._grammar = grammar
         if errors:
-            raise YaccError("Unable to build grammar.\n" + "\n".join(errors))
+            msg = "\n".join(["Unable to build grammar.", *errors])
+            raise YaccError(msg)
 
     @classmethod
     def __build_lrtables(cls) -> bool:
@@ -2299,14 +2314,16 @@ class Parser(metaclass=ParserMeta):
 
         # Validate other parts of the grammar specification
         if not cls.__validate_specification():
-            raise YaccError("Invalid parser specification")
+            msg = "Invalid parser specification."
+            raise YaccError(msg)
 
         # Build the underlying grammar object
         cls.__build_grammar(rules)
 
         # Build the LR tables
         if not cls.__build_lrtables():
-            raise YaccError("Can't build parsing tables")
+            msg = "Can't build parsing tables."
+            raise YaccError(msg)
 
         if cls.debugfile:
             with open(cls.debugfile, "w") as f:
@@ -2533,7 +2550,8 @@ class Parser(metaclass=ParserMeta):
                 continue
 
             # Call an error function here
-            raise RuntimeError("sly: internal parser error!!!\n")
+            msg = "sly: internal parser error!!!\n"
+            raise RuntimeError(msg)
 
     # Return position tracking information
     def line_position(self, value: object) -> Optional[int]:

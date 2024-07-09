@@ -1,4 +1,4 @@
-"""Module with bits and bobs, like internal sentinels and typing-relates symbols/shims."""
+"""Bits and bobs, like typing-related shims and internal sentinels."""
 
 import sys
 from collections.abc import Callable
@@ -30,7 +30,7 @@ else:  # pragma: <3.12 cover
     def override(arg: object) -> Any:
         try:
             arg.__override__ = True
-        except AttributeError:
+        except AttributeError:  # pragma: no cover
             pass
         return arg
 

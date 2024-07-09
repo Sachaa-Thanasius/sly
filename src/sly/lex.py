@@ -2,9 +2,9 @@
 # -----------------------------------------------------------------------------
 # sly: lex.py
 #
-# Copyright (C) 2024 Sachaa-Thanasius
 # Copyright (C) 2016 - 2018
 # David M. Beazley (Dabeaz LLC)
+# Copyright (C) 2024, Sachaa-Thanasius
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -173,7 +173,8 @@ class LexerMetaDict(dict[str, Any]):
                 if callable(value):
                     value.pattern = prior
                 else:
-                    raise AttributeError(f"Name {key} redefined")  # noqa: TRY004
+                    msg = f"Name {key!r} redefined."
+                    raise AttributeError(msg)  # noqa: TRY004
 
         super().__setitem__(key, value)
 
@@ -310,7 +311,8 @@ class Lexer(metaclass=LexerMeta):
         for key, value in potential_rules.items():
             if (key in cls._token_names) or key.startswith("ignore_") or hasattr(value, "pattern"):
                 if callable(value) and not hasattr(value, "pattern"):
-                    raise LexerBuildError(f"function {value} doesn't have a regex pattern")
+                    msg = f"function {value} doesn't have a regex pattern."
+                    raise LexerBuildError(msg)
 
                 if key in existing:
                     # The definition matches something that already existed in the base class.
@@ -334,7 +336,8 @@ class Lexer(metaclass=LexerMeta):
                     existing[key] = value
 
             elif isinstance(value, str) and not key.startswith("_") and key not in {"ignore", "literals"}:
-                raise LexerBuildError(f"{key} does not match a name in tokens")
+                msg = f"{key!r} does not match a name in tokens"
+                raise LexerBuildError(msg)
 
         # Apply deletion rules.
         rules = [(key, value) for key, value in rules if key not in cls._delete]
@@ -345,7 +348,8 @@ class Lexer(metaclass=LexerMeta):
         """Build the lexer object from the collected tokens and regular expressions, and validate them as sane."""
 
         if "tokens" not in vars(cls):
-            raise LexerBuildError(f"{cls.__qualname__} class does not define a tokens attribute")
+            msg = f"{cls.__qualname__} class does not define a tokens attribute."
+            raise LexerBuildError(msg)
 
         # Pull definitions created for any parent classes
         cls._token_names = cls._token_names | set(cls.tokens)
@@ -365,7 +369,8 @@ class Lexer(metaclass=LexerMeta):
         undefined = remapped_toks - set(cls._token_names)
         if undefined:
             missing = ", ".join(undefined)
-            raise LexerBuildError(f"{missing} not included in token(s)")
+            msg = f"{missing} not included in token(s)."
+            raise LexerBuildError(msg)
 
         cls._collect_rules(potential_rules)
 
@@ -382,7 +387,8 @@ class Lexer(metaclass=LexerMeta):
                 cls._token_funcs[tokname] = value
                 pattern = value.pattern  # pyright: ignore [reportFunctionMemberAccess]
             else:
-                raise LexerBuildError(f"{value!r} is not a valid rule; it should be a string or a callable.")
+                msg = f"{value!r} is not a valid rule; it should be a string or a callable."
+                raise LexerBuildError(msg)
 
             # Form the regular expression component
             part = f"(?P<{tokname}>{pattern})"
@@ -390,12 +396,14 @@ class Lexer(metaclass=LexerMeta):
             # Make sure the individual regex compiles properly
             try:
                 cpat = cls.regex_module.compile(part, cls.reflags)
-            except Exception as e:
-                raise PatternError(f"Invalid regex for token {tokname}") from e
+            except Exception as exc:
+                msg = f"Invalid regex for token {tokname}."
+                raise PatternError(msg) from exc
 
             # Verify that the pattern doesn't match the empty string
             if cpat.match(""):
-                raise PatternError(f"Regex for token {tokname} matches empty input")
+                msg = f"Regex for token {tokname} matches empty input."
+                raise PatternError(msg)
 
             parts.append(part)
 
@@ -407,16 +415,19 @@ class Lexer(metaclass=LexerMeta):
 
         # Verify that that ignore and literals specifiers match the input type
         if not isinstance(cls.ignore, str):
-            raise LexerBuildError("ignore specifier must be a string")
+            msg = "ignore specifier must be a string."
+            raise LexerBuildError(msg)
 
         if not all(isinstance(lit, str) for lit in cls.literals):
-            raise LexerBuildError("literals must be specified as strings")
+            msg = "literals must be specified as strings."
+            raise LexerBuildError(msg)
 
     def begin(self, cls: type[Self]) -> None:
         """Begin a new lexer state."""
 
         if not isinstance(cls, LexerMeta):
-            raise TypeError("state must be a subclass of Lexer")
+            msg = "state must be a subclass of Lexer."
+            raise TypeError(msg)
 
         if self.__set_state:
             self.__set_state(cls)
@@ -515,7 +526,8 @@ class Lexer(metaclass=LexerMeta):
                 else:
                     # No match, see if the character is in literals
                     if text[index] in _literals:
-                        tok.update(type=tok.value, value=text[index], end=index + 1)
+                        value = text[index]
+                        tok.update(type=value, value=value, end=index + 1)
                         index += 1
                         yield tok
                     else:
@@ -540,7 +552,8 @@ class Lexer(metaclass=LexerMeta):
     def error(self, t: Token) -> Optional[Token]:
         """Default implementation of the error handler. May be changed in subclasses."""
 
-        raise LexError(f"Illegal character {t.value[0]!r} at index {self.index}", t.value, self.index)
+        msg = f"Illegal character {t.value[0]!r} at index {self.index}."
+        raise LexError(msg, t.value, self.index)
 
 
 # endregion

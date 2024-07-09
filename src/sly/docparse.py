@@ -64,11 +64,13 @@ class DocParseMeta(type):
             lexer.cls_module = parser.cls_module = namespace["__module__"]  # pyright: ignore # Runtime attribute assignment.
             parsedict = parser.parse(lexer.tokenize(namespace["__doc__"]))
             if not isinstance(parsedict, dict):
-                raise ValueError("Parser must return a dictionary")
+                msg = "Parser must return a dictionary"
+                raise ValueError(msg)
             namespace.update(parsedict)  # pyright: ignore [reportUnknownArgumentType] # It's enough that it's a dict.
         return super().__new__(cls, clsname, bases, namespace)
 
     @classmethod
     def __init_subclass__(cls) -> None:
         if not (hasattr(cls, "parser") and hasattr(cls, "lexer")):
-            raise RuntimeError("This class must have a parser and lexer.")
+            msg = "This class must have a parser and lexer."
+            raise RuntimeError(msg)
