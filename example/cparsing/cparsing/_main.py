@@ -3,9 +3,9 @@ from collections import ChainMap
 from collections.abc import Sequence
 from typing import Union
 
-from cparsing import ast as c_ast
-from cparsing.lexer import CLexer
-from cparsing.parser import CParser
+from .c_ast import File
+from .c_lexer import CLexer
+from .c_parser import CParser
 
 _StrPath = Union[str, os.PathLike[str]]
 
@@ -13,7 +13,7 @@ _StrPath = Union[str, os.PathLike[str]]
 __all__ = ("parse", "preprocess_file", "parse_file")
 
 
-def parse(source: str, filename: str = "", parser_type: type[CParser] = CParser) -> c_ast.File:
+def parse(source: str, filename: str = "", parser_type: type[CParser] = CParser) -> File:
     scope_stack: ChainMap[str, bool] = ChainMap()
     lexer = CLexer(scope_stack)
     parser = parser_type(scope_stack)
@@ -66,7 +66,7 @@ def parse_file(
     cpp_path: str = "cpp",
     cpp_args: Sequence[str] = (),
     parser_type: type[CParser] = CParser,
-) -> c_ast.File:
+) -> File:
     if use_cpp:
         source = preprocess_file(os.fspath(file), cpp_path, cpp_args)
     else:

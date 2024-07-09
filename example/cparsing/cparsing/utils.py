@@ -4,7 +4,8 @@ import dataclasses
 from typing import Any, Optional
 
 from sly import Parser
-from sly._misc import Self
+
+from ._typing_compat import Self, override
 
 __all__ = ("Coord",)
 
@@ -36,5 +37,6 @@ class Coord:
 
         return cls("", line_start, line_end, col_start, col_end)
 
+    @override
     def __str__(self):
         return f"{self.filename}:{self.line_start}:{(self.col_start, self.col_end)}"

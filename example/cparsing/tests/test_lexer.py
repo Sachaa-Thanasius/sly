@@ -1,7 +1,11 @@
 from collections import ChainMap
 
 import pytest
-from cparsing.lexer import CLexer
+from cparsing.c_lexer import CLexer
+
+# ============================================================================
+# region -------- Helpers
+# ============================================================================
 
 
 @pytest.fixture
@@ -12,6 +16,9 @@ def clex() -> CLexer:
 
 def do_lex(lexer: CLexer, inp: str) -> list[str]:
     return [tok.type for tok in lexer.tokenize(inp)]
+
+
+# endregion
 
 
 @pytest.mark.parametrize(

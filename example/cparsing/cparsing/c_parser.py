@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
 
 from sly import Parser
 
-from . import ast as c_ast
+from . import c_ast
 from ._typing_compat import NotRequired, Self, override
-from .lexer import CLexer
+from .c_lexer import CLexer
 from .utils import Coord
 
 if TYPE_CHECKING:

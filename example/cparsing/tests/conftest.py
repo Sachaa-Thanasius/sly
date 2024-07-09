@@ -1,7 +1,7 @@
 from difflib import Differ
 
 import pytest
-from cparsing import ast as c_ast
+from cparsing import c_ast
 
 _differ = Differ()
 

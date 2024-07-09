@@ -93,6 +93,11 @@ class LexerStateChange(Exception):
 # endregion
 
 
+# ============================================================================
+# region -------- Token Structures --------
+# ============================================================================
+
+
 class Token:
     """Representation of a single token."""
 
@@ -141,6 +146,9 @@ class _Before:
     def __init__(self, tok: str, pattern: str) -> None:
         self.tok = tok
         self.pattern = pattern
+
+
+# endregion
 
 
 # ============================================================================
@@ -280,8 +288,8 @@ class Lexer(metaclass=LexerMeta):
     _remap: ClassVar[dict[tuple[str, Any], Any]] = {}
 
     # ---- Internal attributes
-    __state_stack: Optional[list[type[Self]]] = None
-    __set_state: Optional[Callable[[type[Self]], None]] = None
+    __state_stack: Optional[list[type["Lexer"]]] = None
+    __set_state: Optional[Callable[[type["Lexer"]], None]] = None
 
     def __init__(self) -> None:
         # ---- Public interface
@@ -437,7 +445,7 @@ class Lexer(metaclass=LexerMeta):
             msg = "literals must be specified as strings."
             raise LexerBuildError(msg)
 
-    def begin(self, cls: type[Self]) -> None:
+    def begin(self, cls: type["Lexer"]) -> None:
         """Begin a new lexer state."""
 
         if not isinstance(cls, LexerMeta):
@@ -448,7 +456,7 @@ class Lexer(metaclass=LexerMeta):
             self.__set_state(cls)
         self.__class__ = cls
 
-    def push_state(self, cls: type[Self]) -> None:
+    def push_state(self, cls: type["Lexer"]) -> None:
         """Push a new lexer state onto the stack."""
 
         if self.__state_stack is None:
@@ -473,7 +481,7 @@ class Lexer(metaclass=LexerMeta):
         _remapping: dict[str, dict[str, str]] = MISSING
 
         # ---- Support for state changes
-        def _set_state(cls: type[Self]) -> None:
+        def _set_state(cls: type[Lexer]) -> None:
             nonlocal _ignored_tokens, _master_re, _ignore, _token_funcs, _literals, _remapping
             _ignored_tokens = cls._ignored_tokens
             _master_re = cls._master_re

@@ -2,8 +2,7 @@ import platform
 from typing import Literal
 
 import pytest
-from cparsing import ast as c_ast
-from cparsing import parse
+from cparsing import c_ast, parse
 
 # ============================================================================
 # region -------- Helpers

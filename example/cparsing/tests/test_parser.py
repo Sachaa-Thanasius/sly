@@ -1,9 +1,8 @@
 from typing import Any, Optional, Union
 
 import pytest
-from cparsing import ast as c_ast
-from cparsing import parse
-from cparsing.parser import CParseError
+from cparsing import c_ast, parse
+from cparsing.c_parser import CParseError
 from cparsing.utils import Coord
 
 # ============================================================================

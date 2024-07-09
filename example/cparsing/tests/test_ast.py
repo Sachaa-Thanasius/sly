@@ -1,6 +1,6 @@
 import weakref
 
-from cparsing import ast as c_ast
+from cparsing import c_ast
 from cparsing.utils import Coord
 
 
