@@ -18,24 +18,17 @@
 # greater good.
 # -----------------------------------------------------------------------------
 # endregion
-"""A modified version of cluegen with typing support."""
+"""A modified version of cluegen, with support for typing and simple defaults."""
 
 import sys
 from collections.abc import Callable
 from functools import reduce
-from typing import TYPE_CHECKING, Any, ClassVar, Protocol, TypeVar, get_origin
+from types import MemberDescriptorType
+from typing import Any, ClassVar, Final, Protocol, TypeVar, final, get_origin
 
-from ._typing_compat import Self, dataclass_transform
-
-if TYPE_CHECKING:
-    from types import MemberDescriptorType
-else:
-    MemberDescriptorType = type(type(lambda: None).__globals__)
+from ._typing_compat import Self, dataclass_transform, override
 
 _DBT = TypeVar("_DBT", bound="DatumBase")
-
-
-__all__ = ("all_clues", "cluegen", "DatumBase", "Datum")
 
 
 class _ClueGenDescriptor(Protocol[_DBT]):
@@ -45,6 +38,22 @@ class _ClueGenDescriptor(Protocol[_DBT]):
     def __set_name__(self, owner: type[_DBT], name: str) -> None: ...
 
 
+__all__ = ("all_clues", "all_defaults", "cluegen", "DatumBase", "Datum")
+
+
+@final
+class _Nothing:
+    __slots__ = ()
+
+    @override
+    def __repr__(self) -> str:
+        return "CLUEGEN_NOTHING"
+
+
+NOTHING: Final[Any] = _Nothing()
+"""Internal sentinel."""
+
+
 def cluegen(func: Callable[[type[_DBT]], str]) -> _ClueGenDescriptor[_DBT]:
     """Create a custom ClueGen descriptor that will, as needed, execute and assign the code resulting from `func`."""
 
@@ -52,14 +61,15 @@ def cluegen(func: Callable[[type[_DBT]], str]) -> _ClueGenDescriptor[_DBT]:
         try:
             owner_mod = sys.modules[owner.__module__]
         except KeyError:
-            global_ns = {}
+            global_ns = {"CLUEGEN_NOTHING": NOTHING}
         else:
-            global_ns = vars(owner_mod)
+            global_ns = dict(owner_mod.__dict__, CLUEGEN_NOTHING=NOTHING)
+
         local_ns: dict[str, Any] = {}
         code = func(owner)
 
         exec(code, global_ns, local_ns)  # noqa: S102
-        method = local_ns.popitem()[1]
+        method = local_ns[func.__name__]
 
         setattr(owner, func.__name__, method)
         return method.__get__(instance, owner)
@@ -81,6 +91,24 @@ def all_clues(cls: type) -> dict[str, Any]:
 
     clues = reduce(lambda x, y: getattr(y, "__annotations__", {}) | x, cls.__mro__, {})
     return {name: ann for name, ann in clues.items() if (get_origin(ann) or ann) is not ClassVar}
+
+
+def all_defaults(cls: type, clues: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    _missing = object()  # sentinel
+
+    defaults: dict[str, Any] = {}
+    mutable_defaults: dict[str, Any] = {}
+
+    for name in clues:
+        default = getattr(cls, name, _missing)
+        if default is not _missing and not isinstance(default, MemberDescriptorType):
+            if isinstance(default, (list, dict, set, bytearray)):
+                mutable_defaults[name] = default
+                defaults[name] = NOTHING
+            else:
+                defaults[name] = default
+            delattr(cls, name)
+    return defaults, mutable_defaults
 
 
 class DatumBase:
@@ -114,19 +142,20 @@ class Datum(DatumBase):
 
     @cluegen
     def __init__(cls: type[Self]) -> str:  # pyright: ignore
-        _missing = object()  # sentinel
         clues = all_clues(cls)
-        defaults: dict[str, Any] = {}
-
-        for name in clues:
-            attr = getattr(cls, name, _missing)
-            if attr is not _missing and not isinstance(attr, MemberDescriptorType):
-                defaults[name] = attr
-                delattr(cls, name)
+        defaults, mutable_defaults = all_defaults(cls, clues)
 
         args = ((name, f'{name}: {getattr(clue, "__name__", repr(clue))}') for name, clue in clues.items())
         args = ", ".join((f"{arg} = {defaults[name]!r}" if name in defaults else arg) for name, arg in args)
-        body = "\n".join(f"   self.{name} = {name}" for name in clues)
+        body = "\n".join(
+            (
+                *(f"    self.{name} = {name}" for name in clues if name not in mutable_defaults),
+                *(
+                    f"    self.{name} = {name} if {name} is not CLUEGEN_NOTHING else {mutable_defaults[name]}"
+                    for name in mutable_defaults
+                ),
+            )
+        )
         return f"def __init__(self, {args}):\n{body}\n"  # noqa: PLE0101
 
     @cluegen

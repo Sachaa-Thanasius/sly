@@ -1,12 +1,11 @@
 # pyright: reportRedeclaration=none, reportUndefinedVariable=none
 
-from collections import ChainMap
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
 
 from sly import Parser
 
-from . import c_ast
+from . import c_ast, c_context
 from ._typing_compat import NotRequired, Self, override
 from .c_lexer import CLexer
 from .utils import Coord
@@ -271,31 +270,31 @@ class CParser(Parser):
     debugfile = "sly_cparser.out"
     tokens = CLexer.tokens
 
-    def __init__(self, scope_stack: ChainMap[str, bool]):
-        self.scope_stack: ChainMap[str, bool] = scope_stack
+    def __init__(self, context: "c_context.CContext") -> None:
+        self.context = context
 
     # ============================================================================
     # region ---- Scope modification helpers
     # ============================================================================
 
     def is_type_in_scope(self, name: str) -> bool:
-        return self.scope_stack.get(name, False)
+        return self.context.scope_stack.get(name, False)
 
     def add_identifier_to_scope(self, name: str, coord: Optional[Coord]) -> None:
         """Add a new object, function, or enum member name (i.e. an ID) to the current scope."""
 
-        if self.scope_stack.maps[0].get(name, False):
+        if self.context.scope_stack.maps[0].get(name, False):
             msg = f"{coord}: Non-typedef {name!r} previously declared as typedef in this scope."
             raise CParseError(msg)
-        self.scope_stack[name] = False
+        self.context.scope_stack[name] = False
 
     def add_typedef_name_to_scope(self, name: str, coord: Optional[Coord]) -> None:
         """Add a new typedef name (i.e. a TYPEID) to the current scope."""
 
-        if not self.scope_stack.maps[0].get(name, True):
+        if not self.context.scope_stack.maps[0].get(name, True):
             msg = f"{coord}: Typedef {name!r} previously declared as non-typedef in this scope."
             raise CParseError(msg)
-        self.scope_stack[name] = True
+        self.context.scope_stack[name] = True
 
     # endregion
 
@@ -1263,7 +1262,7 @@ class CParser(Parser):
         # and incorrectly interpreted as TYPEID.  We need to add the
         # parameters to the scope the moment the lexer sees LBRACE.
         #
-        print(self.lookahead.type)
+
         if self.lookahead.type == "LBRACE" and func.args is not None:
             for param in func.args.params:
                 if isinstance(param, c_ast.EllipsisParam):

@@ -5,23 +5,13 @@ import contextlib
 from collections import deque
 from collections.abc import Generator, MutableSequence
 from io import StringIO
+from types import GeneratorType
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Literal, Optional
 from typing import Union as TUnion
 
-from ._cluegen import Datum, all_clues, cluegen
+from ._cluegen import Datum, all_clues, all_defaults, cluegen
 from ._typing_compat import Self, TypeAlias, TypeGuard, override
 from .utils import Coord
-
-if TYPE_CHECKING:
-    from types import GeneratorType, MemberDescriptorType
-else:
-
-    def _g() -> None:
-        yield 1
-
-    GeneratorType = type(_g())
-    MemberDescriptorType = type(type(lambda: None).__globals__)
-
 
 __all__ = (
     # Nodes
@@ -92,7 +82,7 @@ __all__ = (
 if TYPE_CHECKING:
 
     class AST(Datum, kw_only=True):
-        _fields: ClassVar = ()
+        _fields: ClassVar[tuple[str, ...]] = ()
         coord: Optional[Coord] = None
 else:
 
@@ -103,23 +93,25 @@ else:
 
         @cluegen
         def __init__(cls: type[Self]) -> str:  # pyright: ignore
-            _missing = object()  # sentinel
             clues = all_clues(cls)
-            defaults: dict[str, Any] = {}
-
-            for name in clues:
-                attr = getattr(cls, name, _missing)
-                if attr is not _missing and not isinstance(attr, MemberDescriptorType):
-                    defaults[name] = attr
-                    delattr(cls, name)
+            defaults, mutable_defaults = all_defaults(cls, clues)
 
             args = ((name, f'{name}: {getattr(clue, "__name__", repr(clue))}') for name, clue in clues.items())
             args = ", ".join((f"{arg} = {defaults[name]!r}" if name in defaults else arg) for name, arg in args)
-            body = "\n".join(f"   self.{name} = {name}" for name in (*clues, "coord"))
-            return f"def __init__(self, {args}{',' if args else ''} *, coord: Optional[int] = None):\n{body}\n"  # noqa: PLE0101
+            body = "\n".join(
+                (
+                    *(f"    self.{name} = {name}" for name in clues if name not in mutable_defaults),
+                    *(
+                        f"    self.{name} = {name} if {name} is not CLUEGEN_NOTHING else {mutable_defaults[name]}"
+                        for name in mutable_defaults
+                    ),
+                    "    self.coord = coord",
+                )
+            )
+            return f'def __init__(self, {args}{"," if args else ""} *, coord: Optional[int] = None):\n{body}\n'  # noqa: PLE0101
 
         @override
-        def __eq__(self, other: object):
+        def __eq__(self, other: object) -> bool:
             """Return whether two nodes have the same values (disregarding coordinates)."""
 
             if not isinstance(other, type(self)):

@@ -1,6 +1,5 @@
-from collections import ChainMap
-
 import pytest
+from cparsing.c_context import CContext
 from cparsing.c_lexer import CLexer
 
 # ============================================================================
@@ -10,8 +9,9 @@ from cparsing.c_lexer import CLexer
 
 @pytest.fixture
 def clex() -> CLexer:
-    scope_stack: ChainMap[str, bool] = ChainMap({"mytype": True})
-    return CLexer(scope_stack)
+    context = CContext()
+    context.scope_stack["mytype"] = True
+    return CLexer(context)
 
 
 def do_lex(lexer: CLexer, inp: str) -> list[str]:

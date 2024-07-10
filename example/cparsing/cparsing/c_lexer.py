@@ -2,12 +2,12 @@
 # pyright: reportUndefinedVariable=none, reportIndexIssue=none
 
 import re
-from collections import ChainMap
 from typing import TYPE_CHECKING, NoReturn, Optional
 
 from sly import Lexer
 from sly.lex import Token
 
+from . import c_context
 from ._typing_compat import override
 
 if TYPE_CHECKING:
@@ -346,7 +346,7 @@ class CLexer(Lexer):
     # fmt: on
 
     def ID(self, t: Token) -> Token:
-        if self.scope_stack.get(t.value, False):
+        if self.context.scope_stack.get(t.value, False):
             t.type = "TYPEID"
         return t
 
@@ -370,17 +370,17 @@ class CLexer(Lexer):
         msg = msg or f"(Line, Column) {self.lineno}, {column}: Bad character {t.value[0]!r}"
         raise CLexError(msg, t.value, (self.lineno, column))
 
-    def __init__(self, scope_stack: ChainMap[str, bool]):
-        self.scope_stack: ChainMap[str, bool] = scope_stack
+    def __init__(self, context: "c_context.CContext") -> None:
+        self.context = context
         self.filename: str = ""
         self.pp_line: Optional[str] = None
         self.pp_filename: Optional[str] = None
 
     def create_scope(self) -> None:
-        self.scope_stack = self.scope_stack.new_child()
+        self.context.scope_stack = self.context.scope_stack.new_child()
 
     def pop_scope(self) -> None:
-        self.scope_stack = self.scope_stack.parents
+        self.context.scope_stack = self.context.scope_stack.parents
 
 
 class PreprocessorLineLexer(Lexer):
@@ -402,8 +402,7 @@ class PreprocessorLineLexer(Lexer):
         if self.pp_line is None:
             self.pp_line = t.value
         else:
-            # Ignore: GCC's cpp sometimes inserts a numeric flag
-            # after the file name
+            # Ignore: GCC's cpp sometimes inserts a numeric flag after the file name
             pass
 
     @_(r"line")

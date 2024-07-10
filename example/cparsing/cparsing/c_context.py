@@ -1,23 +1,36 @@
 import os
 from collections import ChainMap
 from collections.abc import Sequence
-from typing import Union
+from typing import Optional, Union
 
-from .c_ast import File
+from . import c_ast
+from ._typing_compat import TypeAlias
 from .c_lexer import CLexer
 from .c_parser import CParser
 
-_StrPath = Union[str, os.PathLike[str]]
+_StrPath: TypeAlias = Union[str, os.PathLike[str]]
 
 
-__all__ = ("parse", "preprocess_file", "parse_file")
+__all__ = ("CContext", "parse", "preprocess_file", "parse_file")
 
 
-def parse(source: str, filename: str = "", parser_type: type[CParser] = CParser) -> File:
-    scope_stack: ChainMap[str, bool] = ChainMap()
-    lexer = CLexer(scope_stack)
-    parser = parser_type(scope_stack)
-    return parser.parse(lexer.tokenize(source))
+class CContext:
+    def __init__(self, parser_type: type[CParser] = CParser) -> None:
+        self.lexer = CLexer(self)
+        self.parser = parser_type(self)
+        self.scope_stack: ChainMap[str, bool] = ChainMap()
+        self.source = ""
+        self.ast: Optional[c_ast.AST] = None
+
+    def parse(self, source: str) -> None:
+        self.source = source
+        self.ast = self.parser.parse(self.lexer.tokenize(source))
+
+
+def parse(source: str, filename: str = "", parser_type: type[CParser] = CParser) -> Optional["c_ast.AST"]:
+    context = CContext(parser_type)
+    context.parse(source)
+    return context.ast
 
 
 def preprocess_file(filename: str, cpp_path: str = "cpp", cpp_args: Sequence[str] = ()) -> str:
@@ -51,9 +64,9 @@ def preprocess_file(filename: str, cpp_path: str = "cpp", cpp_args: Sequence[str
     try:
         # Note the use of universal_newlines to treat all newlines as \n for Python's purpose
         preprocessed_text = subprocess.check_output(cmd, universal_newlines=True)  # noqa: S603
-    except OSError as err:
+    except OSError as exc:
         msg = 'Unable to invoke "cpp". Make sure its path was passed correctly.'
-        raise RuntimeError(msg) from err
+        raise RuntimeError(msg) from exc
     else:
         return preprocessed_text
 
@@ -66,7 +79,7 @@ def parse_file(
     cpp_path: str = "cpp",
     cpp_args: Sequence[str] = (),
     parser_type: type[CParser] = CParser,
-) -> File:
+) -> Optional["c_ast.AST"]:
     if use_cpp:
         source = preprocess_file(os.fspath(file), cpp_path, cpp_args)
     else:
