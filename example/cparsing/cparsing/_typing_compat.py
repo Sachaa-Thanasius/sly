@@ -16,15 +16,42 @@ else:  # pragma: no cover
     from typing import _GenericAlias
 
 
-__all__ = ("NotRequired", "Self", "TypeGuard", "TypeAlias", "override")
+_CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
+
+
+__all__ = ("NotRequired", "Self", "TypeAlias", "TypeGuard", "dataclass_transform", "override")
+
 
 if sys.version_info >= (3, 12):  # pragma: >=3.12 cover
-    from typing import override
+    from typing import dataclass_transform, override
 elif TYPE_CHECKING:
-    from typing_extensions import override
+    from typing_extensions import dataclass_transform, override
 else:  # pragma: <3.12 cover
+    from typing import Union
 
-    def override(arg: object) -> Any:
+    def dataclass_transform(
+        *,
+        eq_default: bool = True,
+        order_default: bool = False,
+        kw_only_default: bool = False,
+        frozen_default: bool = False,
+        field_specifiers: tuple[Union[type[Any], Callable[..., Any]], ...] = (),
+        **kwargs: Any,
+    ) -> Callable[[_CallableT], _CallableT]:
+        def decorator(cls_or_fn: _CallableT) -> _CallableT:
+            cls_or_fn.__dataclass_transform__ = {
+                "eq_default": eq_default,
+                "order_default": order_default,
+                "kw_only_default": kw_only_default,
+                "frozen_default": frozen_default,
+                "field_specifiers": field_specifiers,
+                "kwargs": kwargs,
+            }
+            return cls_or_fn
+
+        return decorator
+
+    def override(arg: _CallableT) -> _CallableT:
         try:
             arg.__override__ = True
         except AttributeError:  # pragma: no cover
@@ -71,6 +98,3 @@ else:  # pragma: <3.10 cover
 
     class TypeAlias(metaclass=_PlaceholderMeta):
         pass
-
-
-CallableT = TypeVar("CallableT", bound=Callable[..., Any])

@@ -1,17 +1,16 @@
 """Some utilities for internal use."""
 
-import dataclasses
 from typing import Any, Optional
 
 from sly import Parser
 
+from ._cluegen import Datum
 from ._typing_compat import Self, override
 
 __all__ = ("Coord",)
 
 
-@dataclasses.dataclass
-class Coord:
+class Coord(Datum):
     filename: str
     line_start: int
     col_start: int
@@ -38,5 +37,5 @@ class Coord:
         return cls("", line_start, line_end, col_start, col_end)
 
     @override
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.filename}:{self.line_start}:{(self.col_start, self.col_end)}"

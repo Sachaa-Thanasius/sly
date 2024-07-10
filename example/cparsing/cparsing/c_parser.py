@@ -15,6 +15,14 @@ if TYPE_CHECKING:
     from sly.types import _, subst
 
 
+__all__ = ("CParseError", "CParser")
+
+
+# ============================================================================
+# region -------- Misc
+# ============================================================================
+
+
 class _StructDeclaratorDict(TypedDict):
     decl: Optional[c_ast.AST]
     bitsize: NotRequired[Optional[c_ast.AST]]
@@ -72,7 +80,7 @@ class DeclSpecifier:
         return spec
 
 
-__all__ = ("CParseError", "CParser")
+# endregion
 
 
 # ============================================================================
