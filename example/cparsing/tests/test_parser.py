@@ -1,47 +1,9 @@
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 import pytest
 from cparsing import c_ast, parse
 from cparsing.c_parser import CParseError
 from cparsing.utils import Coord
-
-# ============================================================================
-# region -------- Helpers
-# ============================================================================
-
-_MISSING: Any = object()
-
-# from pathlib import Path
-# SAMPLE_CFILES_PATH = Path().resolve(strict=True) / "tests" / "c_files"
-
-
-def DeclWithDefaults(
-    name: str,
-    type: c_ast.AST,  # noqa: A002
-    quals: list[str] = _MISSING,
-    align: list[c_ast.Alignas] = _MISSING,
-    storage: list[str] = _MISSING,
-    funcspec: list[Any] = _MISSING,
-    init: Optional[c_ast.AST] = None,
-    bitsize: Optional[c_ast.AST] = None,
-) -> c_ast.Decl:
-    """Create a c_ast.Decl with common defaults for various fields if they aren't passed in.
-
-    Defaults may be added to the actual node eventually, but for now, this eases repetition in testing.
-    """
-
-    if quals is _MISSING:
-        quals = []
-    if align is _MISSING:
-        align = []
-    if storage is _MISSING:
-        storage = []
-    if funcspec is _MISSING:
-        funcspec = []
-    return c_ast.Decl(name, quals, align, storage, funcspec, type, init, bitsize)
-
-
-# endregion
 
 # ============================================================================
 # region -------- Tests
@@ -71,7 +33,7 @@ def test_empty_toplevel_decl():
     assert isinstance(tree, c_ast.File)
     assert len(tree.ext) == 1
 
-    expected_decl = DeclWithDefaults("foo", c_ast.TypeDecl("foo", [], None, c_ast.IdType(["int"])))
+    expected_decl = c_ast.Decl(name="foo", type=c_ast.TypeDecl("foo", [], None, c_ast.IdType(["int"])))
     assert tree.ext[0] == expected_decl
 
 
@@ -81,7 +43,7 @@ def test_empty_toplevel_decl():
         (";", c_ast.File([])),
         (
             ";int foo;",
-            c_ast.File([DeclWithDefaults(name="foo", type=c_ast.TypeDecl("foo", [], None, c_ast.IdType(["int"])))]),
+            c_ast.File([c_ast.Decl(name="foo", type=c_ast.TypeDecl("foo", [], None, c_ast.IdType(["int"])))]),
         ),
     ],
 )
@@ -206,30 +168,30 @@ void foo() {
     [
         (
             "int a;",
-            DeclWithDefaults("a", c_ast.TypeDecl("a", [], None, c_ast.IdType(["int"]))),
+            c_ast.Decl(name="a", type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["int"]))),
         ),
         (
             "unsigned int a;",
-            DeclWithDefaults("a", c_ast.TypeDecl("a", [], None, c_ast.IdType(["unsigned", "int"]))),
+            c_ast.Decl(name="a", type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["unsigned", "int"]))),
         ),
         (
             "_Bool a;",
-            DeclWithDefaults("a", c_ast.TypeDecl("a", [], None, c_ast.IdType(["_Bool"]))),
+            c_ast.Decl(name="a", type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["_Bool"]))),
         ),
         (
             "float _Complex fcc;",
-            DeclWithDefaults("fcc", c_ast.TypeDecl("fcc", [], None, c_ast.IdType(["float", "_Complex"]))),
+            c_ast.Decl(name="fcc", type=c_ast.TypeDecl("fcc", [], None, c_ast.IdType(["float", "_Complex"]))),
         ),
         (
             "char* string;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="string",
                 type=c_ast.PtrDecl([], type=c_ast.TypeDecl("string", [], None, c_ast.IdType(["char"]))),
             ),
         ),
         (
             "long ar[15];",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="ar",
                 type=c_ast.ArrayDecl(
                     type=c_ast.TypeDecl("ar", [], None, c_ast.IdType(["long"])),
@@ -240,7 +202,7 @@ void foo() {
         ),
         (
             "long long ar[15];",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="ar",
                 type=c_ast.ArrayDecl(
                     type=c_ast.TypeDecl("ar", [], None, c_ast.IdType(["long", "long"])),
@@ -251,7 +213,7 @@ void foo() {
         ),
         (
             "unsigned ar[];",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="ar",
                 type=c_ast.ArrayDecl(
                     type=c_ast.TypeDecl("ar", [], None, c_ast.IdType(["unsigned"])),
@@ -262,12 +224,12 @@ void foo() {
         ),
         (
             "int strlen(char* s);",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="strlen",
                 type=c_ast.FuncDecl(
                     args=c_ast.ParamList(
                         [
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="s",
                                 type=c_ast.PtrDecl(
                                     quals=[],
@@ -282,19 +244,19 @@ void foo() {
         ),
         (
             "int strcmp(char* s1, char* s2);",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="strcmp",
                 type=c_ast.FuncDecl(
                     args=c_ast.ParamList(
                         [
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="s1",
                                 type=c_ast.PtrDecl(
                                     quals=[],
                                     type=c_ast.TypeDecl("s1", [], None, c_ast.IdType(["char"])),
                                 ),
                             ),
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="s2",
                                 type=c_ast.PtrDecl(
                                     quals=[],
@@ -309,7 +271,7 @@ void foo() {
         ),
         pytest.param(
             "extern foobar(foo, bar);",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="foobar",
                 storage=["extern"],
                 type=c_ast.FuncDecl(
@@ -321,7 +283,7 @@ void foo() {
         ),
         pytest.param(
             "__int128 a;",
-            DeclWithDefaults(name="a", type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["__int128"]))),
+            c_ast.Decl(name="a", type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["__int128"]))),
             id=(
                 "__int128: it isn't part of the core C99 or C11 standards, but is mentioned in both documents"
                 "under 'Common Extensions'."
@@ -340,7 +302,7 @@ def test_simple_decls(test_input: str, expected: c_ast.AST):
     [
         (
             "char** ar2D;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="ar2D",
                 type=c_ast.PtrDecl(
                     quals=[],
@@ -350,7 +312,7 @@ def test_simple_decls(test_input: str, expected: c_ast.AST):
         ),
         (
             "int (*a)[1][2];",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="a",
                 type=c_ast.PtrDecl(
                     quals=[],
@@ -368,7 +330,7 @@ def test_simple_decls(test_input: str, expected: c_ast.AST):
         ),
         (
             "int *a[1][2];",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="a",
                 type=c_ast.ArrayDecl(
                     type=c_ast.ArrayDecl(
@@ -383,7 +345,7 @@ def test_simple_decls(test_input: str, expected: c_ast.AST):
         ),
         (
             "char* const* p;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="p",
                 type=c_ast.PtrDecl(
                     quals=[],
@@ -393,7 +355,7 @@ def test_simple_decls(test_input: str, expected: c_ast.AST):
         ),
         (
             "const char* const* p;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="p",
                 quals=["const"],
                 type=c_ast.PtrDecl(
@@ -407,7 +369,7 @@ def test_simple_decls(test_input: str, expected: c_ast.AST):
         ),
         (
             "char* * const p;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="p",
                 type=c_ast.PtrDecl(
                     quals=["const"],
@@ -417,7 +379,7 @@ def test_simple_decls(test_input: str, expected: c_ast.AST):
         ),
         (
             "char ***ar3D[40];",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="ar3D",
                 type=c_ast.ArrayDecl(
                     type=c_ast.PtrDecl(
@@ -437,7 +399,7 @@ def test_simple_decls(test_input: str, expected: c_ast.AST):
         ),
         (
             "char (***ar3D)[40];",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="ar3D",
                 type=c_ast.PtrDecl(
                     quals=[],
@@ -457,7 +419,7 @@ def test_simple_decls(test_input: str, expected: c_ast.AST):
         ),
         (
             "int (*const*const x)(char, int);",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="x",
                 type=c_ast.PtrDecl(
                     quals=["const"],
@@ -488,7 +450,7 @@ def test_simple_decls(test_input: str, expected: c_ast.AST):
         ),
         (
             "int (*x[4])(char, int);",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="x",
                 type=c_ast.ArrayDecl(
                     type=c_ast.PtrDecl(
@@ -520,7 +482,7 @@ def test_simple_decls(test_input: str, expected: c_ast.AST):
         ),
         (
             "char *(*(**foo [][8])())[];",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="foo",
                 type=c_ast.ArrayDecl(
                     type=c_ast.ArrayDecl(
@@ -554,7 +516,7 @@ def test_simple_decls(test_input: str, expected: c_ast.AST):
         ),
         pytest.param(
             "int (*k)(int);",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="k",
                 type=c_ast.PtrDecl(
                     quals=[],
@@ -577,7 +539,7 @@ def test_simple_decls(test_input: str, expected: c_ast.AST):
         ),
         pytest.param(
             "int (*k)(const int);",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="k",
                 type=c_ast.PtrDecl(
                     quals=[],
@@ -600,13 +562,13 @@ def test_simple_decls(test_input: str, expected: c_ast.AST):
         ),
         pytest.param(
             "int (*k)(int q);",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="k",
                 type=c_ast.PtrDecl(
                     quals=[],
                     type=c_ast.FuncDecl(
                         args=c_ast.ParamList(
-                            [DeclWithDefaults(name="q", type=c_ast.TypeDecl("q", [], None, c_ast.IdType(["int"])))]
+                            [c_ast.Decl(name="q", type=c_ast.TypeDecl("q", [], None, c_ast.IdType(["int"])))]
                         ),
                         type=c_ast.TypeDecl("k", [], None, c_ast.IdType(["int"])),
                     ),
@@ -616,14 +578,14 @@ def test_simple_decls(test_input: str, expected: c_ast.AST):
         ),
         pytest.param(
             "int (*k)(const volatile int q);",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="k",
                 type=c_ast.PtrDecl(
                     quals=[],
                     type=c_ast.FuncDecl(
                         args=c_ast.ParamList(
                             [
-                                DeclWithDefaults(
+                                c_ast.Decl(
                                     name="q",
                                     quals=["const", "volatile"],
                                     type=c_ast.TypeDecl("q", ["const", "volatile"], None, c_ast.IdType(["int"])),
@@ -638,14 +600,14 @@ def test_simple_decls(test_input: str, expected: c_ast.AST):
         ),
         pytest.param(
             "int (*k)(_Atomic volatile int q);",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="k",
                 type=c_ast.PtrDecl(
                     quals=[],
                     type=c_ast.FuncDecl(
                         args=c_ast.ParamList(
                             [
-                                DeclWithDefaults(
+                                c_ast.Decl(
                                     name="q",
                                     quals=["_Atomic", "volatile"],
                                     type=c_ast.TypeDecl(
@@ -665,14 +627,14 @@ def test_simple_decls(test_input: str, expected: c_ast.AST):
         ),
         pytest.param(
             "int (*k)(const volatile int* q);",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="k",
                 type=c_ast.PtrDecl(
                     quals=[],
                     type=c_ast.FuncDecl(
                         args=c_ast.ParamList(
                             [
-                                DeclWithDefaults(
+                                c_ast.Decl(
                                     name="q",
                                     quals=["const", "volatile"],
                                     type=c_ast.PtrDecl(
@@ -695,14 +657,14 @@ def test_simple_decls(test_input: str, expected: c_ast.AST):
         ),
         pytest.param(
             "int (*k)(restrict int* q);",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="k",
                 type=c_ast.PtrDecl(
                     quals=[],
                     type=c_ast.FuncDecl(
                         args=c_ast.ParamList(
                             [
-                                DeclWithDefaults(
+                                c_ast.Decl(
                                     name="q",
                                     quals=["restrict"],
                                     type=c_ast.PtrDecl(
@@ -736,12 +698,12 @@ def test_nested_decls(test_input: str, expected: c_ast.AST):
     [
         pytest.param(
             "int zz(int p[static 10]);",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="zz",
                 type=c_ast.FuncDecl(
                     args=c_ast.ParamList(
                         [
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="p",
                                 type=c_ast.ArrayDecl(
                                     type=c_ast.TypeDecl("p", [], None, c_ast.IdType(["int"])),
@@ -758,12 +720,12 @@ def test_nested_decls(test_input: str, expected: c_ast.AST):
         ),
         pytest.param(
             "int zz(int p[const 10]);",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="zz",
                 type=c_ast.FuncDecl(
                     args=c_ast.ParamList(
                         [
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="p",
                                 type=c_ast.ArrayDecl(
                                     type=c_ast.TypeDecl("p", [], None, c_ast.IdType(["int"])),
@@ -780,12 +742,12 @@ def test_nested_decls(test_input: str, expected: c_ast.AST):
         ),
         pytest.param(
             "int zz(int p[restrict][5]);",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="zz",
                 type=c_ast.FuncDecl(
                     args=c_ast.ParamList(
                         [
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="p",
                                 type=c_ast.ArrayDecl(
                                     type=c_ast.ArrayDecl(
@@ -806,12 +768,12 @@ def test_nested_decls(test_input: str, expected: c_ast.AST):
         ),
         pytest.param(
             "int zz(int p[const restrict static 10][5]);",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="zz",
                 type=c_ast.FuncDecl(
                     args=c_ast.ParamList(
                         [
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="p",
                                 type=c_ast.ArrayDecl(
                                     type=c_ast.ArrayDecl(
@@ -832,7 +794,7 @@ def test_nested_decls(test_input: str, expected: c_ast.AST):
         ),
         pytest.param(
             "int zz(int [const 10]);",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="zz",
                 type=c_ast.FuncDecl(
                     args=c_ast.ParamList(
@@ -856,7 +818,7 @@ def test_nested_decls(test_input: str, expected: c_ast.AST):
         ),
         pytest.param(
             "int zz(int [restrict][5]);",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="zz",
                 type=c_ast.FuncDecl(
                     args=c_ast.ParamList(
@@ -884,7 +846,7 @@ def test_nested_decls(test_input: str, expected: c_ast.AST):
         ),
         pytest.param(
             "int zz(int [const restrict volatile 10][5]);",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="zz",
                 type=c_ast.FuncDecl(
                     args=c_ast.ParamList(
@@ -959,7 +921,7 @@ def test_qualifiers_storage_specifiers_2():
         (
             "_Atomic(int) ai;",
             0,
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="ai",
                 quals=["_Atomic"],
                 type=c_ast.TypeDecl("ai", quals=["_Atomic"], align=None, type=c_ast.IdType(["int"])),
@@ -968,7 +930,7 @@ def test_qualifiers_storage_specifiers_2():
         (
             "_Atomic(int*) ai;",
             0,
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="ai",
                 type=c_ast.PtrDecl(quals=["_Atomic"], type=c_ast.TypeDecl("ai", [], None, c_ast.IdType(["int"]))),
             ),
@@ -976,7 +938,7 @@ def test_qualifiers_storage_specifiers_2():
         (
             "_Atomic(_Atomic(int)*) aai;",
             0,
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="aai",
                 quals=["_Atomic"],
                 type=c_ast.PtrDecl(
@@ -989,12 +951,12 @@ def test_qualifiers_storage_specifiers_2():
             "_Atomic(int) foo, bar;",
             slice(0, 2),
             [
-                DeclWithDefaults(
+                c_ast.Decl(
                     name="foo",
                     quals=["_Atomic"],
                     type=c_ast.TypeDecl("foo", quals=["_Atomic"], align=None, type=c_ast.IdType(["int"])),
                 ),
-                DeclWithDefaults(
+                c_ast.Decl(
                     name="bar",
                     quals=["_Atomic"],
                     type=c_ast.TypeDecl("foo", quals=["_Atomic"], align=None, type=c_ast.IdType(["int"])),
@@ -1108,7 +1070,7 @@ void foo()
     [
         (
             "int a = _Alignof(int);",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="a",
                 type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["int"])),
                 init=c_ast.UnaryOp(
@@ -1124,7 +1086,7 @@ void foo()
         ),
         (
             "_Alignas(_Alignof(int)) char a;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="a",
                 align=[
                     c_ast.Alignas(
@@ -1144,7 +1106,7 @@ void foo()
         ),
         (
             "_Alignas(4) char a;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="a",
                 align=[c_ast.Alignas(alignment=c_ast.Constant("int", "4"))],
                 type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["char"])),
@@ -1152,7 +1114,7 @@ void foo()
         ),
         (
             "_Alignas(int) char a;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="a",
                 align=[
                     c_ast.Alignas(
@@ -1186,7 +1148,7 @@ void foo() {
 """
 
     expected_list = [
-        DeclWithDefaults(
+        c_ast.Decl(
             name="a",
             type=c_ast.TypeDecl("a", [], None, c_ast.IdType(names=["int"])),
             init=c_ast.FuncCall(
@@ -1229,7 +1191,7 @@ void foo() {
                 ),
             ),
         ),
-        DeclWithDefaults(
+        c_ast.Decl(
             name="a",
             type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["int"])),
             init=c_ast.FuncCall(
@@ -1251,7 +1213,7 @@ void foo() {
                 ),
             ),
         ),
-        DeclWithDefaults(
+        c_ast.Decl(
             name="a",
             type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["int"])),
             init=c_ast.FuncCall(
@@ -1364,22 +1326,22 @@ def test_parenthesized_compounds() -> None:
     }"""
 
     expected = [
-        DeclWithDefaults(name="a", type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["int"]))),
+        c_ast.Decl(name="a", type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["int"]))),
         c_ast.Compound(block_items=None),
         c_ast.Compound([c_ast.Constant("int", value="1")]),
         c_ast.Compound([c_ast.Constant("int", value="1"), c_ast.Constant("int", "2")]),
-        DeclWithDefaults(
+        c_ast.Decl(
             name="b",
             type=c_ast.TypeDecl("b", [], None, c_ast.IdType(names=["int"])),
             init=c_ast.Compound([c_ast.Constant("int", "1")]),
         ),
-        DeclWithDefaults(name="c", type=c_ast.TypeDecl("c", [], None, c_ast.IdType(["int"]))),
-        DeclWithDefaults(
+        c_ast.Decl(name="c", type=c_ast.TypeDecl("c", [], None, c_ast.IdType(["int"]))),
+        c_ast.Decl(
             name="d",
             type=c_ast.TypeDecl("d", [], None, c_ast.IdType(names=["int"])),
             init=c_ast.Compound(
                 [
-                    DeclWithDefaults(
+                    c_ast.Decl(
                         name="x",
                         type=c_ast.TypeDecl("x", [], None, c_ast.IdType(["int"])),
                         init=c_ast.Constant("int", "1"),
@@ -1393,7 +1355,7 @@ def test_parenthesized_compounds() -> None:
             left=c_ast.Id("a"),
             right=c_ast.Compound(
                 [
-                    DeclWithDefaults(
+                    c_ast.Decl(
                         name="x",
                         type=c_ast.TypeDecl("x", [], None, c_ast.IdType(["int"])),
                         init=c_ast.Constant("int", "1"),
@@ -1465,14 +1427,14 @@ def test_enums(test_input: str, expected: c_ast.AST) -> None:
                         type=c_ast.TypeDecl("node", [], None, c_ast.IdType(["void"])),
                     ),
                 ),
-                DeclWithDefaults(name="k", type=c_ast.TypeDecl("k", [], None, c_ast.IdType(["node"]))),
+                c_ast.Decl(name="k", type=c_ast.TypeDecl("k", [], None, c_ast.IdType(["node"]))),
             ],
             id="with typedef",
         ),
         (
             "typedef int T;\ntypedef T *pT;\n\npT aa, bb;",
             3,
-            DeclWithDefaults(name="bb", type=c_ast.TypeDecl("bb", [], None, c_ast.IdType(["pT"]))),
+            c_ast.Decl(name="bb", type=c_ast.TypeDecl("bb", [], None, c_ast.IdType(["pT"]))),
         ),
         (
             "typedef char* __builtin_va_list;\ntypedef __builtin_va_list __gnuc_va_list;",
@@ -1544,7 +1506,7 @@ def test_typedef_error(test_input: str):
         (
             "struct {\n    int id;\n    char* name;\n} joe;",
             0,
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="joe",
                 type=c_ast.TypeDecl(
                     "joe",
@@ -1553,11 +1515,11 @@ def test_typedef_error(test_input: str):
                     c_ast.Struct(
                         name=None,
                         decls=[
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="id",
                                 type=c_ast.TypeDecl("id", [], None, c_ast.IdType(names=["int"])),
                             ),
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="name",
                                 type=c_ast.PtrDecl(
                                     quals=[],
@@ -1572,17 +1534,17 @@ def test_typedef_error(test_input: str):
         (
             "struct node p;",
             0,
-            DeclWithDefaults(name="p", type=c_ast.TypeDecl("p", [], None, c_ast.Struct("node", None))),
+            c_ast.Decl(name="p", type=c_ast.TypeDecl("p", [], None, c_ast.Struct("node", None))),
         ),
         (
             "union pri ra;",
             0,
-            DeclWithDefaults(name="ra", type=c_ast.TypeDecl("ra", [], None, c_ast.Union(name="pri", decls=None))),
+            c_ast.Decl(name="ra", type=c_ast.TypeDecl("ra", [], None, c_ast.Union(name="pri", decls=None))),
         ),
         (
             "struct node* p;",
             0,
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="p",
                 type=c_ast.PtrDecl(quals=[], type=c_ast.TypeDecl("p", [], None, c_ast.Struct(name="node", decls=None))),
             ),
@@ -1590,7 +1552,7 @@ def test_typedef_error(test_input: str):
         (
             "struct node;",
             0,
-            DeclWithDefaults(name=None, type=c_ast.Struct(name="node", decls=None)),
+            c_ast.Decl(name=None, type=c_ast.Struct(name="node", decls=None)),
         ),
         (
             "union\n"
@@ -1607,7 +1569,7 @@ def test_typedef_error(test_input: str):
             "    } ni;\n"
             "} u;",
             0,
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="u",
                 type=c_ast.TypeDecl(
                     declname="u",
@@ -1616,7 +1578,7 @@ def test_typedef_error(test_input: str):
                     type=c_ast.Union(
                         name=None,
                         decls=[
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="n",
                                 type=c_ast.TypeDecl(
                                     "n",
@@ -1625,7 +1587,7 @@ def test_typedef_error(test_input: str):
                                     c_ast.Struct(
                                         name=None,
                                         decls=[
-                                            DeclWithDefaults(
+                                            c_ast.Decl(
                                                 name="type",
                                                 type=c_ast.TypeDecl("type", [], None, c_ast.IdType(names=["int"])),
                                             )
@@ -1633,7 +1595,7 @@ def test_typedef_error(test_input: str):
                                     ),
                                 ),
                             ),
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="ni",
                                 type=c_ast.TypeDecl(
                                     "ni",
@@ -1642,11 +1604,11 @@ def test_typedef_error(test_input: str):
                                     c_ast.Struct(
                                         name=None,
                                         decls=[
-                                            DeclWithDefaults(
+                                            c_ast.Decl(
                                                 name="type",
                                                 type=c_ast.TypeDecl("type", [], None, c_ast.IdType(["int"])),
                                             ),
-                                            DeclWithDefaults(
+                                            c_ast.Decl(
                                                 name="intnode",
                                                 type=c_ast.TypeDecl("intnode", [], None, c_ast.IdType(["int"])),
                                             ),
@@ -1674,7 +1636,7 @@ def test_typedef_error(test_input: str):
                         type=c_ast.Struct(
                             name="foo_tag",
                             decls=[
-                                DeclWithDefaults(
+                                c_ast.Decl(
                                     name="data",
                                     type=c_ast.PtrDecl(
                                         quals=[],
@@ -1698,7 +1660,7 @@ def test_typedef_error(test_input: str):
                             type=c_ast.Struct(
                                 name="foo_tag",
                                 decls=[
-                                    DeclWithDefaults(
+                                    c_ast.Decl(
                                         name="data",
                                         type=c_ast.PtrDecl(
                                             quals=[],
@@ -1753,11 +1715,11 @@ def test_typedef_error(test_input: str):
                     type=c_ast.Struct(
                         name="tagHash",
                         decls=[
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="table_size",
                                 type=c_ast.TypeDecl("table_size", [], None, c_ast.IdType(["unsigned", "int"])),
                             ),
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="heads",
                                 type=c_ast.PtrDecl(
                                     quals=[],
@@ -1804,12 +1766,12 @@ struct _on_exit_args {
     [
         (
             "struct Foo {\n   enum Bar { A = 1 };\n};",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name=None,
                 type=c_ast.Struct(
                     name="Foo",
-                    decls=[  # type: ignore
-                        DeclWithDefaults(
+                    decls=[
+                        c_ast.Decl(
                             name=None,
                             type=c_ast.Enum(
                                 name="Bar",
@@ -1822,7 +1784,7 @@ struct _on_exit_args {
         ),
         (
             "struct Foo {\n    enum Bar { A = 1, B, C } bar;\n    enum Baz { D = A } baz;\n} foo;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="foo",
                 type=c_ast.TypeDecl(
                     declname="foo",
@@ -1831,7 +1793,7 @@ struct _on_exit_args {
                     type=c_ast.Struct(
                         name="Foo",
                         decls=[
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="bar",
                                 type=c_ast.TypeDecl(
                                     declname="bar",
@@ -1849,7 +1811,7 @@ struct _on_exit_args {
                                     ),
                                 ),
                             ),
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="baz",
                                 type=c_ast.TypeDecl(
                                     declname="baz",
@@ -1878,7 +1840,7 @@ def test_struct_enum(test_input: str, expected: c_ast.AST):
     [
         (
             "struct {\n    int a;;\n} foo;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="foo",
                 type=c_ast.TypeDecl(
                     declname="foo",
@@ -1887,7 +1849,7 @@ def test_struct_enum(test_input: str, expected: c_ast.AST):
                     type=c_ast.Struct(
                         name=None,
                         decls=[
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="a",
                                 type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["int"])),
                             )
@@ -1898,7 +1860,7 @@ def test_struct_enum(test_input: str, expected: c_ast.AST):
         ),
         (
             "struct {\n    int a;;;;\n    float b, c;\n    ;;\n    char d;\n} foo;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="foo",
                 type=c_ast.TypeDecl(
                     declname="foo",
@@ -1907,19 +1869,19 @@ def test_struct_enum(test_input: str, expected: c_ast.AST):
                     type=c_ast.Struct(
                         name=None,
                         decls=[
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="a",
                                 type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["int"])),
                             ),
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="b",
                                 type=c_ast.TypeDecl("b", [], None, c_ast.IdType(["float"])),
                             ),
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="c",
                                 type=c_ast.TypeDecl("c", [], None, c_ast.IdType(["float"])),
                             ),
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="d",
                                 type=c_ast.TypeDecl("d", [], None, c_ast.IdType(["char"])),
                             ),
@@ -1941,7 +1903,7 @@ def test_struct_with_extra_semis_inside(test_input: str, expected: c_ast.AST):
     [
         (
             "struct {\n    ;int a;\n} foo;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="foo",
                 type=c_ast.TypeDecl(
                     declname="foo",
@@ -1949,7 +1911,7 @@ def test_struct_with_extra_semis_inside(test_input: str, expected: c_ast.AST):
                     align=None,
                     type=c_ast.Struct(
                         name=None,
-                        decls=[DeclWithDefaults(name="a", type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["int"])))],
+                        decls=[c_ast.Decl(name="a", type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["int"])))],
                     ),
                 ),
             ),
@@ -1981,29 +1943,29 @@ def test_struct_with_initial_semi(test_input: str, expected: c_ast.AST):
             "    };\n"
             "} u;",
             c_ast.FuncDef(
-                decl=DeclWithDefaults(
+                decl=c_ast.Decl(
                     name="foo",
                     type=c_ast.FuncDecl(args=None, type=c_ast.TypeDecl("foo", [], None, c_ast.IdType(["void"]))),
                 ),
                 param_decls=None,
                 body=c_ast.Compound(
                     [  # type: ignore
-                        DeclWithDefaults(name="a", type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["int"]))),
+                        c_ast.Decl(name="a", type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["int"]))),
                         c_ast.Compound(block_items=None),
                         c_ast.Compound(block_items=[c_ast.Constant("int", "1")]),
                         c_ast.Compound(block_items=[c_ast.Constant("int", "1"), c_ast.Constant("int", "2")]),
-                        DeclWithDefaults(
+                        c_ast.Decl(
                             name="b",
                             type=c_ast.TypeDecl("b", [], None, c_ast.IdType(["int"])),
                             init=c_ast.Compound([c_ast.Constant("int", "1")]),
                         ),
-                        DeclWithDefaults(name="c", type=c_ast.TypeDecl("c", [], None, c_ast.IdType(["int"]))),
-                        DeclWithDefaults(
+                        c_ast.Decl(name="c", type=c_ast.TypeDecl("c", [], None, c_ast.IdType(["int"]))),
+                        c_ast.Decl(
                             name="d",
                             type=c_ast.TypeDecl("d", [], None, c_ast.IdType(["int"])),
                             init=c_ast.Compound(
                                 [
-                                    DeclWithDefaults(
+                                    c_ast.Decl(
                                         name="x",
                                         type=c_ast.TypeDecl("x", [], None, c_ast.IdType(["int"])),
                                         init=c_ast.Constant("int", "1"),
@@ -2017,7 +1979,7 @@ def test_struct_with_initial_semi(test_input: str, expected: c_ast.AST):
                             left=c_ast.Id("a"),
                             right=c_ast.Compound(
                                 [
-                                    DeclWithDefaults(
+                                    c_ast.Decl(
                                         name="x",
                                         type=c_ast.TypeDecl("x", [], None, c_ast.IdType(["int"])),
                                         init=c_ast.Constant("int", "1"),
@@ -2038,7 +2000,7 @@ def test_struct_with_initial_semi(test_input: str, expected: c_ast.AST):
             "    };\n"
             "    int m;\n"
             "} v1;\n",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="v1",
                 type=c_ast.TypeDecl(
                     declname="v1",
@@ -2046,29 +2008,29 @@ def test_struct_with_initial_semi(test_input: str, expected: c_ast.AST):
                     align=None,
                     type=c_ast.Struct(
                         name="v",
-                        decls=[  # type: ignore
-                            DeclWithDefaults(
+                        decls=[
+                            c_ast.Decl(
                                 name=None,
                                 type=c_ast.Union(
                                     name=None,
-                                    decls=[  # type: ignore
-                                        DeclWithDefaults(
+                                    decls=[
+                                        c_ast.Decl(
                                             name=None,
                                             type=c_ast.Struct(
                                                 name=None,
                                                 decls=[
-                                                    DeclWithDefaults(
+                                                    c_ast.Decl(
                                                         name="i",
                                                         type=c_ast.TypeDecl("i", [], None, c_ast.IdType(["int"])),
                                                     ),
-                                                    DeclWithDefaults(
+                                                    c_ast.Decl(
                                                         name="j",
                                                         type=c_ast.TypeDecl("j", [], None, c_ast.IdType(["int"])),
                                                     ),
                                                 ],
                                             ),
                                         ),
-                                        DeclWithDefaults(
+                                        c_ast.Decl(
                                             name="w",
                                             type=c_ast.TypeDecl(
                                                 declname="w",
@@ -2077,11 +2039,11 @@ def test_struct_with_initial_semi(test_input: str, expected: c_ast.AST):
                                                 type=c_ast.Struct(
                                                     name=None,
                                                     decls=[
-                                                        DeclWithDefaults(
+                                                        c_ast.Decl(
                                                             name="k",
                                                             type=c_ast.TypeDecl("k", [], None, c_ast.IdType(["long"])),
                                                         ),
-                                                        DeclWithDefaults(
+                                                        c_ast.Decl(
                                                             name="l",
                                                             type=c_ast.TypeDecl("l", [], None, c_ast.IdType(["long"])),
                                                         ),
@@ -2092,7 +2054,7 @@ def test_struct_with_initial_semi(test_input: str, expected: c_ast.AST):
                                     ],
                                 ),
                             ),
-                            DeclWithDefaults(name="m", type=c_ast.TypeDecl("m", [], None, c_ast.IdType(["int"]))),
+                            c_ast.Decl(name="m", type=c_ast.TypeDecl("m", [], None, c_ast.IdType(["int"]))),
                         ],
                     ),
                 ),
@@ -2101,7 +2063,7 @@ def test_struct_with_initial_semi(test_input: str, expected: c_ast.AST):
         ),
         (
             "struct v {\n    int i;\n    float;\n} v2;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="v2",
                 type=c_ast.TypeDecl(
                     declname="v2",
@@ -2109,9 +2071,9 @@ def test_struct_with_initial_semi(test_input: str, expected: c_ast.AST):
                     align=None,
                     type=c_ast.Struct(
                         name="v",
-                        decls=[  # type: ignore
-                            DeclWithDefaults(name="i", type=c_ast.TypeDecl("i", [], None, c_ast.IdType(["int"]))),
-                            DeclWithDefaults(name=None, type=c_ast.IdType(["float"])),
+                        decls=[
+                            c_ast.Decl(name="i", type=c_ast.TypeDecl("i", [], None, c_ast.IdType(["int"]))),
+                            c_ast.Decl(name=None, type=c_ast.IdType(["float"])),
                         ],
                     ),
                 ),
@@ -2147,7 +2109,7 @@ void main(void)
 
     tree = parse(test_input)
 
-    expected2 = DeclWithDefaults(
+    expected2 = c_ast.Decl(
         name="sye",
         type=c_ast.TypeDecl(
             declname="sye",
@@ -2156,8 +2118,8 @@ void main(void)
             type=c_ast.Struct(
                 name=None,
                 decls=[
-                    DeclWithDefaults(name="Name", type=c_ast.TypeDecl("Name", [], None, c_ast.IdType(["Name"]))),
-                    DeclWithDefaults(
+                    c_ast.Decl(name="Name", type=c_ast.TypeDecl("Name", [], None, c_ast.IdType(["Name"]))),
+                    c_ast.Decl(
                         name="NameArray",
                         type=c_ast.ArrayDecl(
                             type=c_ast.TypeDecl("NameArray", [], None, c_ast.IdType(["Name"])),
@@ -2186,7 +2148,7 @@ struct {
     tree = parse(s1)
     parsed_struct = tree.ext[0]
 
-    expected = DeclWithDefaults(
+    expected = c_ast.Decl(
         name="joe",
         type=c_ast.TypeDecl(
             declname="joe",
@@ -2194,13 +2156,13 @@ struct {
             align=None,
             type=c_ast.Struct(
                 name=None,
-                decls=[  # type: ignore
-                    DeclWithDefaults(
+                decls=[
+                    c_ast.Decl(
                         name="k",
                         type=c_ast.TypeDecl("k", [], None, c_ast.IdType(["int"])),
                         bitsize=c_ast.Constant("int", "6"),
                     ),
-                    DeclWithDefaults(
+                    c_ast.Decl(
                         name=None,
                         type=c_ast.TypeDecl(None, [], None, c_ast.IdType(["int"])),
                         bitsize=c_ast.Constant("int", "2"),
@@ -2218,15 +2180,15 @@ struct {
     [
         (
             "struct foo { };",
-            DeclWithDefaults(name=None, type=c_ast.Struct(name="foo", decls=[])),
+            c_ast.Decl(name=None, type=c_ast.Struct(name="foo", decls=[])),
         ),
         (
             "struct { } foo;",
-            DeclWithDefaults(name="foo", type=c_ast.TypeDecl("foo", [], None, c_ast.Struct(name=None, decls=[]))),
+            c_ast.Decl(name="foo", type=c_ast.TypeDecl("foo", [], None, c_ast.Struct(name=None, decls=[]))),
         ),
         (
             "union { } foo;",
-            DeclWithDefaults(name="foo", type=c_ast.TypeDecl("foo", [], None, c_ast.Union(name=None, decls=[]))),
+            c_ast.Decl(name="foo", type=c_ast.TypeDecl("foo", [], None, c_ast.Union(name=None, decls=[]))),
         ),
     ],
 )
@@ -2251,7 +2213,7 @@ def test_struct_empty(test_input: str, expected: c_ast.AST):
         (
             "typedef int tagEntry;\n" "\n" "struct tagEntry\n" "{\n" "    char* key;\n" "    char* value;\n" "} Entry;",
             1,
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="Entry",
                 type=c_ast.TypeDecl(
                     declname="Entry",
@@ -2260,13 +2222,13 @@ def test_struct_empty(test_input: str, expected: c_ast.AST):
                     type=c_ast.Struct(
                         name="tagEntry",
                         decls=[
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="key",
                                 type=c_ast.PtrDecl(
                                     quals=[], type=c_ast.TypeDecl("key", [], None, c_ast.IdType(["char"]))
                                 ),
                             ),
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="value",
                                 type=c_ast.PtrDecl(
                                     quals=[], type=c_ast.TypeDecl("value", [], None, c_ast.IdType(["char"]))
@@ -2288,7 +2250,7 @@ def test_struct_empty(test_input: str, expected: c_ast.AST):
             "    char* value;\n"
             "} Entry;",
             2,
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="Entry",
                 type=c_ast.TypeDecl(
                     declname="Entry",
@@ -2297,14 +2259,14 @@ def test_struct_empty(test_input: str, expected: c_ast.AST):
                     type=c_ast.Struct(
                         name="tagEntry",
                         decls=[
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="key",
                                 type=c_ast.PtrDecl(
                                     quals=[],
                                     type=c_ast.TypeDecl("key", [], None, c_ast.IdType(["char"])),
                                 ),
                             ),
-                            DeclWithDefaults(
+                            c_ast.Decl(
                                 name="value",
                                 type=c_ast.PtrDecl(
                                     quals=[],
@@ -2319,7 +2281,7 @@ def test_struct_empty(test_input: str, expected: c_ast.AST):
         (
             "typedef int mytag;\n\nenum mytag {ABC, CDE};\nenum mytag joe;\n",
             1,
-            DeclWithDefaults(
+            c_ast.Decl(
                 name=None,
                 type=c_ast.Enum(
                     name="mytag",
@@ -2345,8 +2307,8 @@ def test_tags_namespace(test_input: str, index: Union[int, slice], expected: Uni
             "int a, b;",
             c_ast.File(
                 [
-                    DeclWithDefaults(name="a", type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["int"]))),
-                    DeclWithDefaults(name="b", type=c_ast.TypeDecl("b", [], None, c_ast.IdType(["int"]))),
+                    c_ast.Decl(name="a", type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["int"]))),
+                    c_ast.Decl(name="b", type=c_ast.TypeDecl("b", [], None, c_ast.IdType(["int"]))),
                 ]
             ),
         ),
@@ -2354,12 +2316,12 @@ def test_tags_namespace(test_input: str, index: Union[int, slice], expected: Uni
             "char* p, notp, ar[4];",
             c_ast.File(
                 [
-                    DeclWithDefaults(
+                    c_ast.Decl(
                         name="p",
                         type=c_ast.PtrDecl(quals=[], type=c_ast.TypeDecl("p", [], None, c_ast.IdType(["char"]))),
                     ),
-                    DeclWithDefaults(name="notp", type=c_ast.TypeDecl("notp", [], None, type=c_ast.IdType(["char"]))),
-                    DeclWithDefaults(
+                    c_ast.Decl(name="notp", type=c_ast.TypeDecl("notp", [], None, type=c_ast.IdType(["char"]))),
+                    c_ast.Decl(
                         name="ar",
                         type=c_ast.ArrayDecl(
                             type=c_ast.TypeDecl("ar", [], None, c_ast.IdType(["char"])),
@@ -2422,7 +2384,7 @@ def test_invalid_typedef_storage_qual_error():
                         quals=[],
                         type=c_ast.FuncDecl(
                             args=c_ast.ParamList(
-                                [DeclWithDefaults(name="x", type=c_ast.TypeDecl("x", [], None, c_ast.IdType(["int"])))]
+                                [c_ast.Decl(name="x", type=c_ast.TypeDecl("x", [], None, c_ast.IdType(["int"])))]
                             ),
                             type=c_ast.TypeDecl("funcptr", [], None, c_ast.IdType(["int"])),
                         ),
@@ -2436,7 +2398,7 @@ def test_invalid_typedef_storage_qual_error():
                         quals=[],
                         type=c_ast.FuncDecl(
                             args=c_ast.ParamList(
-                                [DeclWithDefaults(name="x", type=c_ast.TypeDecl("x", [], None, c_ast.IdType(["int"])))]
+                                [c_ast.Decl(name="x", type=c_ast.TypeDecl("x", [], None, c_ast.IdType(["int"])))]
                             ),
                             type=c_ast.TypeDecl("funcptr", [], None, c_ast.IdType(["int"])),
                         ),
@@ -2485,13 +2447,13 @@ def test_duplicate_typedef(test_input: str, expected: list[c_ast.AST]):
     [
         (
             "int a = 16;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="a", type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["int"])), init=c_ast.Constant("int", "16")
             ),
         ),
         (
             "float f = 0xEF.56p1;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="f",
                 type=c_ast.TypeDecl("f", [], None, c_ast.IdType(["float"])),
                 init=c_ast.Constant("float", "0xEF.56p1"),
@@ -2499,7 +2461,7 @@ def test_duplicate_typedef(test_input: str, expected: list[c_ast.AST]):
         ),
         (
             "int bitmask = 0b1001010;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="bitmask",
                 type=c_ast.TypeDecl("bitmask", [], None, c_ast.IdType(["int"])),
                 init=c_ast.Constant("int", "0b1001010"),
@@ -2507,7 +2469,7 @@ def test_duplicate_typedef(test_input: str, expected: list[c_ast.AST]):
         ),
         (
             "long ar[] = {7, 8, 9};",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="ar",
                 type=c_ast.ArrayDecl(
                     type=c_ast.TypeDecl("ar", [], None, c_ast.IdType(["long"])), dim=None, dim_quals=[]
@@ -2519,7 +2481,7 @@ def test_duplicate_typedef(test_input: str, expected: list[c_ast.AST]):
         ),
         (
             "long ar[4] = {};",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="ar",
                 type=c_ast.ArrayDecl(
                     type=c_ast.TypeDecl("ar", [], None, c_ast.IdType(["long"])),
@@ -2531,17 +2493,17 @@ def test_duplicate_typedef(test_input: str, expected: list[c_ast.AST]):
         ),
         (
             "char p = j;",
-            DeclWithDefaults(name="p", type=c_ast.TypeDecl("p", [], None, c_ast.IdType(["char"])), init=c_ast.Id("j")),
+            c_ast.Decl(name="p", type=c_ast.TypeDecl("p", [], None, c_ast.IdType(["char"])), init=c_ast.Id("j")),
         ),
         (
             "char x = 'c', *p = {0, 1, 2, {4, 5}, 6};",
             [
-                DeclWithDefaults(
+                c_ast.Decl(
                     name="x",
                     type=c_ast.TypeDecl("x", [], None, c_ast.IdType(["char"])),
                     init=c_ast.Constant("char", "'c'"),
                 ),
-                DeclWithDefaults(
+                c_ast.Decl(
                     name="p",
                     type=c_ast.PtrDecl(quals=[], type=c_ast.TypeDecl("p", [], None, c_ast.IdType(["char"]))),
                     init=c_ast.InitList(
@@ -2558,7 +2520,7 @@ def test_duplicate_typedef(test_input: str, expected: list[c_ast.AST]):
         ),
         (
             "float d = 1.0;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="d",
                 type=c_ast.TypeDecl("d", [], None, c_ast.IdType(["float"])),
                 init=c_ast.Constant("double", "1.0"),
@@ -2566,7 +2528,7 @@ def test_duplicate_typedef(test_input: str, expected: list[c_ast.AST]):
         ),
         (
             "float ld = 1.0l;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="ld",
                 type=c_ast.TypeDecl("ld", [], None, c_ast.IdType(["float"])),
                 init=c_ast.Constant("long double", "1.0l"),
@@ -2574,7 +2536,7 @@ def test_duplicate_typedef(test_input: str, expected: list[c_ast.AST]):
         ),
         (
             "float ld = 1.0L;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="ld",
                 type=c_ast.TypeDecl("ld", [], None, c_ast.IdType(["float"])),
                 init=c_ast.Constant("long double", "1.0L"),
@@ -2582,7 +2544,7 @@ def test_duplicate_typedef(test_input: str, expected: list[c_ast.AST]):
         ),
         (
             "float ld = 1.0f;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="ld",
                 type=c_ast.TypeDecl("ld", [], None, c_ast.IdType(["float"])),
                 init=c_ast.Constant("float", "1.0f"),
@@ -2590,7 +2552,7 @@ def test_duplicate_typedef(test_input: str, expected: list[c_ast.AST]):
         ),
         (
             "float ld = 1.0F;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="ld",
                 type=c_ast.TypeDecl("ld", [], None, c_ast.IdType(["float"])),
                 init=c_ast.Constant("float", "1.0F"),
@@ -2598,7 +2560,7 @@ def test_duplicate_typedef(test_input: str, expected: list[c_ast.AST]):
         ),
         (
             "float ld = 0xDE.38p0;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="ld",
                 type=c_ast.TypeDecl("ld", [], None, c_ast.IdType(["float"])),
                 init=c_ast.Constant("float", "0xDE.38p0"),
@@ -2606,7 +2568,7 @@ def test_duplicate_typedef(test_input: str, expected: list[c_ast.AST]):
         ),
         (
             "int i = 1;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="i",
                 type=c_ast.TypeDecl("i", [], None, c_ast.IdType(["int"])),
                 init=c_ast.Constant("int", "1"),
@@ -2614,7 +2576,7 @@ def test_duplicate_typedef(test_input: str, expected: list[c_ast.AST]):
         ),
         (
             "long int li = 1l;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="li",
                 type=c_ast.TypeDecl("li", [], None, c_ast.IdType(["long", "int"])),
                 init=c_ast.Constant("long int", "1l"),
@@ -2622,7 +2584,7 @@ def test_duplicate_typedef(test_input: str, expected: list[c_ast.AST]):
         ),
         (
             "unsigned int ui = 1u;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="ui",
                 type=c_ast.TypeDecl("ui", [], None, c_ast.IdType(["unsigned", "int"])),
                 init=c_ast.Constant("unsigned int", "1u"),
@@ -2630,7 +2592,7 @@ def test_duplicate_typedef(test_input: str, expected: list[c_ast.AST]):
         ),
         (
             "unsigned long long int ulli = 1LLU;",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="ulli",
                 type=c_ast.TypeDecl("ulli", [], None, c_ast.IdType(["unsigned", "long", "long", "int"])),
                 init=c_ast.Constant("unsigned long long int", "1LLU"),
@@ -2684,8 +2646,9 @@ def test_decl_inits(test_input: str, expected: c_ast.AST):
 )
 def test_decl_named_inits(test_input: str, expected: c_ast.AST):
     tree = parse(test_input)
-    init = tree.ext[0].init
+    assert isinstance(tree.ext[0], c_ast.Decl)
 
+    init = tree.ext[0].init
     assert isinstance(init, c_ast.InitList)
     assert init == expected
 
@@ -2696,11 +2659,11 @@ def test_decl_named_inits(test_input: str, expected: c_ast.AST):
         (
             "int factorial(int p)\n{\n    return 3;\n}",
             c_ast.FuncDef(
-                decl=DeclWithDefaults(
+                decl=c_ast.Decl(
                     name="factorial",
                     type=c_ast.FuncDecl(
                         args=c_ast.ParamList(
-                            [DeclWithDefaults(name="p", type=c_ast.TypeDecl("p", [], None, c_ast.IdType(["int"])))]
+                            [c_ast.Decl(name="p", type=c_ast.TypeDecl("p", [], None, c_ast.IdType(["int"])))]
                         ),
                         type=c_ast.TypeDecl("factorial", [], None, c_ast.IdType(["int"])),
                     ),
@@ -2719,13 +2682,13 @@ def test_decl_named_inits(test_input: str, expected: c_ast.AST):
             "    return 3;\n"
             "}",
             c_ast.FuncDef(
-                decl=DeclWithDefaults(
+                decl=c_ast.Decl(
                     name="zzz",
                     type=c_ast.FuncDecl(
                         args=c_ast.ParamList(
                             [
-                                DeclWithDefaults(name="p", type=c_ast.TypeDecl("p", [], None, c_ast.IdType(["int"]))),
-                                DeclWithDefaults(
+                                c_ast.Decl(name="p", type=c_ast.TypeDecl("p", [], None, c_ast.IdType(["int"]))),
+                                c_ast.Decl(
                                     name="c",
                                     type=c_ast.PtrDecl(
                                         quals=[], type=c_ast.TypeDecl("c", [], None, c_ast.IdType(["char"]))
@@ -2739,8 +2702,8 @@ def test_decl_named_inits(test_input: str, expected: c_ast.AST):
                 param_decls=None,
                 body=c_ast.Compound(
                     [
-                        DeclWithDefaults(name="a", type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["int"]))),
-                        DeclWithDefaults(name="b", type=c_ast.TypeDecl("b", [], None, c_ast.IdType(["char"]))),
+                        c_ast.Decl(name="a", type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["int"]))),
+                        c_ast.Decl(name="b", type=c_ast.TypeDecl("b", [], None, c_ast.IdType(["char"]))),
                         c_ast.Assignment(
                             op="=",
                             left=c_ast.Id("a"),
@@ -2762,7 +2725,7 @@ def test_decl_named_inits(test_input: str, expected: c_ast.AST):
             "    return 3;\n"
             "}",
             c_ast.FuncDef(
-                decl=DeclWithDefaults(
+                decl=c_ast.Decl(
                     name="zzz",
                     type=c_ast.FuncDecl(
                         args=c_ast.ParamList([c_ast.Id("p"), c_ast.Id("c")]),
@@ -2770,16 +2733,16 @@ def test_decl_named_inits(test_input: str, expected: c_ast.AST):
                     ),
                 ),
                 param_decls=[
-                    DeclWithDefaults(name="p", type=c_ast.TypeDecl("p", [], None, c_ast.IdType(["long"]))),
-                    DeclWithDefaults(
+                    c_ast.Decl(name="p", type=c_ast.TypeDecl("p", [], None, c_ast.IdType(["long"]))),
+                    c_ast.Decl(
                         name="c",
                         type=c_ast.PtrDecl(quals=[], type=c_ast.TypeDecl("c", [], None, c_ast.IdType(["long"]))),
                     ),
                 ],
                 body=c_ast.Compound(
                     [
-                        DeclWithDefaults(name="a", type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["int"]))),
-                        DeclWithDefaults(name="b", type=c_ast.TypeDecl("b", [], None, c_ast.IdType(["char"]))),
+                        c_ast.Decl(name="a", type=c_ast.TypeDecl("a", [], None, c_ast.IdType(["int"]))),
+                        c_ast.Decl(name="b", type=c_ast.TypeDecl("b", [], None, c_ast.IdType(["char"]))),
                         c_ast.Assignment(
                             op="=",
                             left=c_ast.Id("a"),
@@ -2793,7 +2756,7 @@ def test_decl_named_inits(test_input: str, expected: c_ast.AST):
         pytest.param(
             "que(p)\n{\n    return 3;\n}",
             c_ast.FuncDef(
-                decl=DeclWithDefaults(
+                decl=c_ast.Decl(
                     name="que",
                     type=c_ast.FuncDecl(
                         args=c_ast.ParamList([c_ast.Id("p")]),
@@ -2858,15 +2821,15 @@ int factorial(int p)
 )
 def test_unified_string_literals(test_input: str, expected: c_ast.AST):
     tree = parse(test_input)
+    assert isinstance(tree.ext[0], c_ast.Decl)
 
     assert tree.ext[0].init == expected
 
 
 @pytest.mark.xfail(reason="Not unsupported yet. See issue 392.")
 def test_escapes_in_unified_string_literals():
-    # This is not correct based on the the C spec, but testing it here to
-    # see the behavior in action. Will have to fix this
-    # for https://github.com/eliben/pycparser/issues/392
+    # This is not correct based on the the C spec, but testing it here to see the behavior in action.
+    # Will have to fix this for https://github.com/eliben/pycparser/issues/392
     #
     # The spec says in section 6.4.5 that "escape sequences are converted
     # into single members of the execution character set just prior to
@@ -3025,15 +2988,13 @@ void main() {
     tree = parse(test_input)
 
     expected_list = [
-        DeclWithDefaults(
+        c_ast.Decl(
             name="sum",
             type=c_ast.TypeDecl("sum", [], None, c_ast.IdType(["int"])),
             init=c_ast.Constant("int", "0"),
         ),
         c_ast.For(
-            init=c_ast.DeclList(
-                [DeclWithDefaults(name="i", type=c_ast.TypeDecl("i", [], None, c_ast.IdType(["int"])))]
-            ),
+            init=c_ast.DeclList([c_ast.Decl(name="i", type=c_ast.TypeDecl("i", [], None, c_ast.IdType(["int"])))]),
             cond=c_ast.BinaryOp(op="<", left=c_ast.Id(name="i"), right=c_ast.Constant("int", "3")),
             next=c_ast.UnaryOp(op="p++", expr=c_ast.Id("i")),
             stmt=c_ast.Compound(
@@ -3452,7 +3413,10 @@ def test_whole_file():
 
 
 # def test_whole_file_with_stdio():
-#     # Parse a whole file with stdio.h included by cpp
+#     """Parse a whole file with stdio.h included by cpp."""
+
+#     from pathlib import Path
+#     SAMPLE_CFILES_PATH = Path().resolve(strict=True) / "tests" / "c_files"
 
 #     with SAMPLE_CFILES_PATH.joinpath("cppd_with_stdio_h.c").open(encoding="utf-8") as fp:
 #         code = fp.read()
@@ -3517,7 +3481,7 @@ void bar() {
     [
         pytest.param(
             "typedef char TT;\nint foo(int (aa));\nint bar(int (TT));",
-            DeclWithDefaults(name="aa", type=c_ast.TypeDecl("aa", [], None, c_ast.IdType(["int"]))),
+            c_ast.Decl(name="aa", type=c_ast.TypeDecl("aa", [], None, c_ast.IdType(["int"]))),
             c_ast.Typename(
                 name=None,
                 quals=[],
@@ -3540,7 +3504,7 @@ void bar() {
         ),
         pytest.param(
             "typedef char TT;\nint foo(int (aa (char)));\nint bar(int (TT (char)));",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="aa",
                 type=c_ast.FuncDecl(
                     args=c_ast.ParamList(
@@ -3590,7 +3554,7 @@ void bar() {
         ),
         pytest.param(
             "typedef char TT;\nint foo(int (aa[]));\nint bar(int (TT[]));",
-            DeclWithDefaults(
+            c_ast.Decl(
                 name="aa",
                 type=c_ast.ArrayDecl(
                     type=c_ast.TypeDecl("aa", [], None, c_ast.IdType(["int"])), dim=None, dim_quals=[]
@@ -3645,8 +3609,8 @@ TT x = 5;
 """
     tree1 = parse(test_input_1)
 
-    expected_before_end = DeclWithDefaults(name="TT", type=c_ast.TypeDecl("TT", [], None, c_ast.IdType(["unsigned"])))
-    expected_after_end = DeclWithDefaults(
+    expected_before_end = c_ast.Decl(name="TT", type=c_ast.TypeDecl("TT", [], None, c_ast.IdType(["unsigned"])))
+    expected_after_end = c_ast.Decl(
         name="x", type=c_ast.TypeDecl("x", [], None, c_ast.IdType(["TT"])), init=c_ast.Constant("int", "5")
     )
     assert tree1.ext[1].body.block_items[0] == expected_before_end
@@ -3661,7 +3625,7 @@ void foo(void) {
 """
     tree2 = parse(test_input_2)
 
-    expected = DeclWithDefaults(
+    expected = c_ast.Decl(
         name="TT", type=c_ast.TypeDecl("TT", [], None, c_ast.IdType(["unsigned"])), init=c_ast.Constant("int", "10")
     )
     assert tree2.ext[1].body.block_items[0] == expected
@@ -3677,7 +3641,7 @@ void foo(void) {
 """
     tree3 = parse(test_input_3)
 
-    expected_before_end = DeclWithDefaults(
+    expected_before_end = c_ast.Decl(
         name="tt",
         type=c_ast.TypeDecl("tt", [], None, c_ast.IdType(["TT"])),
         init=c_ast.UnaryOp(
@@ -3687,7 +3651,7 @@ void foo(void) {
             ),
         ),
     )
-    expected_after_end = DeclWithDefaults(
+    expected_after_end = c_ast.Decl(
         name="TT",
         type=c_ast.TypeDecl("TT", [], None, c_ast.IdType(names=["unsigned"])),
         init=c_ast.Constant("int", "10"),
@@ -3705,7 +3669,7 @@ void foo(void) {
 """
     tree4 = parse(test_input_4)
 
-    expected_before_end = DeclWithDefaults(
+    expected_before_end = c_ast.Decl(
         name="TT",
         type=c_ast.TypeDecl("TT", [], None, c_ast.IdType(["TT"])),
         init=c_ast.UnaryOp(
@@ -3716,7 +3680,7 @@ void foo(void) {
         ),
     )
 
-    expected_after_end = DeclWithDefaults(
+    expected_after_end = c_ast.Decl(
         name="uu",
         type=c_ast.TypeDecl("uu", [], None, c_ast.IdType(names=["unsigned"])),
         init=c_ast.BinaryOp(op="*", left=c_ast.Id("TT"), right=c_ast.Constant("int", "2")),
@@ -3746,8 +3710,8 @@ void foo(void) {
 """
     tree6 = parse(test_input_6)
 
-    expected_before_end = DeclWithDefaults(name="TT", type=c_ast.TypeDecl("TT", [], None, c_ast.IdType(["unsigned"])))
-    expected_after_end = DeclWithDefaults(name="uu", type=c_ast.TypeDecl("uu", [], None, c_ast.IdType(["unsigned"])))
+    expected_before_end = c_ast.Decl(name="TT", type=c_ast.TypeDecl("TT", [], None, c_ast.IdType(["unsigned"])))
+    expected_after_end = c_ast.Decl(name="uu", type=c_ast.TypeDecl("uu", [], None, c_ast.IdType(["unsigned"])))
 
     assert tree6.ext[1].body.block_items[0] == expected_before_end
     assert tree6.ext[1].body.block_items[1] == expected_after_end
@@ -3761,7 +3725,7 @@ void foo(void) {
 """
     tree7 = parse(test_input_7)
 
-    expected = DeclWithDefaults(
+    expected = c_ast.Decl(
         name="TT",
         type=c_ast.PtrDecl(quals=[], type=c_ast.TypeDecl("TT", [], None, c_ast.IdType(["unsigned"]))),
     )
@@ -3777,7 +3741,7 @@ void foo(void) {
 """
     tree8 = parse(test_input_8)
 
-    expected_first = DeclWithDefaults(
+    expected_first = c_ast.Decl(
         name="tt",
         type=c_ast.TypeDecl("tt", [], None, c_ast.IdType(["int"])),
         init=c_ast.UnaryOp(
@@ -3787,8 +3751,8 @@ void foo(void) {
             ),
         ),
     )
-    expected_second = DeclWithDefaults(name="TT", type=c_ast.TypeDecl("TT", [], None, c_ast.IdType(["int"])))
-    expected_third = DeclWithDefaults(
+    expected_second = c_ast.Decl(name="TT", type=c_ast.TypeDecl("TT", [], None, c_ast.IdType(["int"])))
+    expected_third = c_ast.Decl(
         name="uu",
         type=c_ast.TypeDecl("uu", [], None, c_ast.IdType(["int"])),
         init=c_ast.UnaryOp(
@@ -3825,13 +3789,13 @@ TT x = 5;
     tree1 = parse(test_input_1)
 
     expected1 = c_ast.FuncDef(
-        decl=DeclWithDefaults(
+        decl=c_ast.Decl(
             name="foo",
             type=c_ast.FuncDecl(
                 args=c_ast.ParamList(
                     [
-                        DeclWithDefaults(name="TT", type=c_ast.TypeDecl("TT", [], None, c_ast.IdType(["unsigned"]))),
-                        DeclWithDefaults(name="bar", type=c_ast.TypeDecl("bar", [], None, c_ast.IdType(["TT"]))),
+                        c_ast.Decl(name="TT", type=c_ast.TypeDecl("TT", [], None, c_ast.IdType(["unsigned"]))),
+                        c_ast.Decl(name="bar", type=c_ast.TypeDecl("bar", [], None, c_ast.IdType(["TT"]))),
                     ]
                 ),
                 type=c_ast.TypeDecl("foo", [], None, c_ast.IdType(["void"])),
@@ -3855,13 +3819,13 @@ TT x = 5;
 
     tree2 = parse(test_input_2)
 
-    expected2 = DeclWithDefaults(
+    expected2 = c_ast.Decl(
         name="foo",
         type=c_ast.FuncDecl(
             args=c_ast.ParamList(
                 [
-                    DeclWithDefaults(name="TT", type=c_ast.TypeDecl("TT", [], None, c_ast.IdType(["unsigned"]))),
-                    DeclWithDefaults(name="bar", type=c_ast.TypeDecl("bar", [], None, c_ast.IdType(["TT"]))),
+                    c_ast.Decl(name="TT", type=c_ast.TypeDecl("TT", [], None, c_ast.IdType(["unsigned"]))),
+                    c_ast.Decl(name="bar", type=c_ast.TypeDecl("bar", [], None, c_ast.IdType(["TT"]))),
                 ]
             ),
             type=c_ast.TypeDecl("foo", [], None, c_ast.IdType(["void"])),

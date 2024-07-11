@@ -50,8 +50,8 @@ class _Nothing:
         return "CLUEGEN_NOTHING"
 
 
-NOTHING: Final[Any] = _Nothing()
-"""Internal sentinel."""
+CLUEGEN_NOTHING: Final[Any] = _Nothing()
+"""Internal sentinel that can act as a placeholder for a mutable default value in a signature."""
 
 
 def cluegen(func: Callable[[type[_DBT]], str]) -> _ClueGenDescriptor[_DBT]:
@@ -61,9 +61,9 @@ def cluegen(func: Callable[[type[_DBT]], str]) -> _ClueGenDescriptor[_DBT]:
         try:
             owner_mod = sys.modules[owner.__module__]
         except KeyError:
-            global_ns = {"CLUEGEN_NOTHING": NOTHING}
+            global_ns = {"CLUEGEN_NOTHING": CLUEGEN_NOTHING}
         else:
-            global_ns = dict(owner_mod.__dict__, CLUEGEN_NOTHING=NOTHING)
+            global_ns = dict(owner_mod.__dict__, CLUEGEN_NOTHING=CLUEGEN_NOTHING)
 
         local_ns: dict[str, Any] = {}
         code = func(owner)
@@ -80,34 +80,45 @@ def cluegen(func: Callable[[type[_DBT]], str]) -> _ClueGenDescriptor[_DBT]:
         except KeyError:
             # Retrieve from superclass and assign in current class dict, in theory.
             owner._methods = list(owner._methods)
-        finally:
-            owner._methods.append((name, self))
+
+        owner._methods.append((name, self))
 
     return type(f"ClueGen_{func.__name__}", (), {"__get__": __get__, "__set_name__": __set_name__})()  # pyright: ignore
 
 
 def all_clues(cls: type) -> dict[str, Any]:
-    """Get all annotations from a type, including from superclasses and excluding ClassVars."""
+    """Get all annotations from a type. This excludes ClassVars and traverses the type's mro."""
 
     clues = reduce(lambda x, y: getattr(y, "__annotations__", {}) | x, cls.__mro__, {})
     return {name: ann for name, ann in clues.items() if (get_origin(ann) or ann) is not ClassVar}
 
 
 def all_defaults(cls: type, clues: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    _missing = object()  # sentinel
+    """Collect and remove all default values from class-level variables with annotations, if they exist.
+
+    Notes
+    -----
+    This accounts for some mutable defaults: lists, dicts, sets, and bytearrays.
+    """
 
     defaults: dict[str, Any] = {}
     mutable_defaults: dict[str, Any] = {}
 
     for name in clues:
-        default = getattr(cls, name, _missing)
-        if default is not _missing and not isinstance(default, MemberDescriptorType):
-            if isinstance(default, (list, dict, set, bytearray)):
-                mutable_defaults[name] = default
-                defaults[name] = NOTHING
-            else:
-                defaults[name] = default
-            delattr(cls, name)
+        try:
+            default = getattr(cls, name)
+        except AttributeError:
+            pass
+        else:
+            if not isinstance(default, MemberDescriptorType):
+                if isinstance(default, (list, dict, set, bytearray)):
+                    mutable_defaults[name] = default
+                    defaults[name] = CLUEGEN_NOTHING
+                else:
+                    defaults[name] = default
+
+                delattr(cls, name)
+
     return defaults, mutable_defaults
 
 
@@ -133,6 +144,10 @@ class DatumBase:
 
 @dataclass_transform()
 class Datum(DatumBase):
+    """Base data structure that automatically creates `__init__`, `__repr__`, `__eq__`, and `__match_args__` based on
+    annotations.
+    """
+
     __slots__ = ()
 
     @classmethod

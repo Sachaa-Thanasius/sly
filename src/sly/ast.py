@@ -6,8 +6,6 @@ from ._misc import Self
 
 
 class AST:
-    # TODO: Investigate incorporating elements of dataklasses, cluegen, etc.
-
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
         mod = sys.modules[cls.__module__]

@@ -1,11 +1,12 @@
+"""Module for parsing C tokens into an AST."""
 # pyright: reportRedeclaration=none, reportUndefinedVariable=none
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Optional, TypedDict, TypeVar, Union, overload
 
 from sly import Parser
 
 from . import c_ast, c_context
+from ._cluegen import Datum
 from ._typing_compat import NotRequired, Self, override
 from .c_lexer import CLexer
 from .utils import Coord
@@ -13,6 +14,8 @@ from .utils import Coord
 if TYPE_CHECKING:
     from sly.types import _, subst
 
+
+_ModifierT = TypeVar("_ModifierT", bound=c_ast.TypeModifier)
 
 __all__ = ("CParseError", "CParser")
 
@@ -23,60 +26,52 @@ __all__ = ("CParseError", "CParser")
 
 
 class _StructDeclaratorDict(TypedDict):
-    decl: Optional[c_ast.AST]
+    decl: Optional[Union[c_ast.TypeDecl, c_ast.TypeModifier, c_ast.Enum, c_ast.Struct, c_ast.Union, c_ast.IdType]]
     bitsize: NotRequired[Optional[c_ast.AST]]
     init: NotRequired[Optional[c_ast.AST]]
 
 
-class _DeclSpecifierDict(TypedDict):
-    qual: list[str]
-    storage: list[str]
-    type: list[c_ast.IdType]
-    function: list[Any]
-    alignment: list[c_ast.Alignas]
-
-
-@dataclass
-class DeclSpecifier:
+class _DeclarationSpecifiers(Datum):
     """Declaration specifiers for C declarations.
 
     Attributes
     ----------
-    qual: list[str]
-        A list of type qualifiers. Defaults to an empty list.
-    storage: list[str]
-        A list of storage type qualifiers. Defaults to an empty list.
-    type: list[c_ast.IdType]
-        A list of type specifiers. Defaults to an empty list.
-    function: list[Any]
-        A list of function specifiers. Defaults to an empty list.
-    alignment: list[c_ast.Alignas]
-        A list of alignment specifiers. Defaults to an empty list.
+    qual: list[str], default=[]
+        A list of type qualifiers.
+    storage: list[str], default=[]
+        A list of storage type qualifiers.
+    type: list[c_ast.IdType], default=[]
+        A list of type specifiers.
+    function: list[Any], default=[]
+        A list of function specifiers.
+    alignment: list[c_ast.Alignas], default=[]
+        A list of alignment specifiers.
     """
 
-    qual: list[str] = field(default_factory=list)
-    storage: list[str] = field(default_factory=list)
-    type: list[c_ast.IdType] = field(default_factory=list)
-    function: list[Any] = field(default_factory=list)
-    alignment: list[c_ast.Alignas] = field(default_factory=list)
+    qual: list[str] = []
+    storage: list[str] = []
+    type: list[c_ast.IdType] = []
+    function: list[Any] = []
+    alignment: list[c_ast.Alignas] = []
 
     @classmethod
-    def create_or_update(cls, decl_spec: Optional[Self], new_item: Any, kind: str, *, append: bool = False) -> Self:
+    def add(cls, decl_spec: Optional[Self], new_item: Any, kind: str, *, append: bool = False) -> Self:
         """Given a declaration specifier and a new specifier of a given kind, add the specifier to its respective list.
 
         If `append` is True, the new specifier is added to the end of the specifiers list, otherwise it's added at the
         beginning. Returns the declaration specifier, with the new specifier incorporated.
         """
 
-        spec = decl_spec or cls()
-        subspec_list: list[Any] = getattr(spec, kind)
-
-        if append:
-            subspec_list.append(new_item)
+        if decl_spec is None:
+            return cls(**{kind: [new_item]})
         else:
-            subspec_list.insert(0, new_item)
+            subspec_list: list[Any] = getattr(decl_spec, kind)
+            if append:
+                subspec_list.append(new_item)
+            else:
+                subspec_list.insert(0, new_item)
 
-        return spec
+            return decl_spec
 
 
 # endregion
@@ -268,7 +263,21 @@ class CParseError(Exception):
 
 class CParser(Parser):
     debugfile = "sly_cparser.out"
+
     tokens = CLexer.tokens
+
+    precedence = (
+        ("left", LOR),
+        ("left", LAND),
+        ("left", OR),
+        ("left", XOR),
+        ("left", AND),
+        ("left", EQ, NE),
+        ("left", GT, GE, LT, LE),
+        ("left", RSHIFT, LSHIFT),
+        ("left", PLUS, MINUS),
+        ("left", TIMES, DIVIDE, MOD),
+    )
 
     def __init__(self, context: "c_context.CContext") -> None:
         self.context = context
@@ -302,24 +311,7 @@ class CParser(Parser):
     # region ---- Parsing helpers
     # ============================================================================
 
-    def _add_declaration_specifier(
-        self,
-        declspec: Optional[dict[str, list[Any]]],
-        newspec: Any,
-        kind: str,
-        *,
-        append: bool = False,
-    ) -> dict[str, list[Any]]:
-        spec = declspec or {"qual": [], "storage": [], "type": [], "function": [], "alignment": []}
-
-        if append:
-            spec[kind].append(newspec)
-        else:
-            spec[kind].insert(0, newspec)
-
-        return spec
-
-    def _fix_decl_name_type(self, decl: Any, typename: Any) -> Any:
+    def _fix_decl_name_type(self, decl: Union[c_ast.Typedef, c_ast.Decl, c_ast.Typename], typename: Any) -> Any:
         """Fixes a declaration. Modifies decl."""
 
         # Reach the underlying basic type
@@ -330,11 +322,9 @@ class CParser(Parser):
         decl.name = type_.declname
         type_.quals = decl.quals[:]
 
-        # The typename is a list of types. If any type in this
-        # list isn't an IdentifierType, it must be the only
-        # type in the list (it's illegal to declare "int enum ..")
-        # If all the types are basic, they're collected in the
-        # IdentifierType holder.
+        # The typename is a list of types. If any type in this list isn't an IdType,
+        # it must be the only type in the list (it's illegal to declare "int enum ..").
+        # If all the types are basic, they're collected in the IdType holder.
         for tn in typename:
             if not isinstance(tn, c_ast.IdType):
                 if len(typename) > 1:
@@ -358,7 +348,7 @@ class CParser(Parser):
 
     def _build_declarations(
         self,
-        spec: _DeclSpecifierDict,
+        spec: _DeclarationSpecifiers,
         decls: list[_StructDeclaratorDict],
         *,
         typedef_namespace: bool = False,
@@ -369,69 +359,61 @@ class CParser(Parser):
         objects, functions, and enum constants.
         """
 
-        is_typedef = "typedef" in spec["storage"]
+        is_typedef = "typedef" in spec.storage
         declarations: list[Any] = []
 
-        if decls[0].get("bitsize") is not None:
+        decls_0 = decls[0]
+
+        if decls_0.get("bitsize") is not None:
             # Bit-fields are allowed to be unnamed.
             pass
 
-        elif decls[0]["decl"] is None:
-            # When redeclaring typedef names as identifiers in inner scopes, a
-            # problem can occur where the identifier gets grouped into
-            # spec["type"], leaving decl as None.  This can only occur for the
-            # first declarator.
-            if (
-                len(spec["type"]) < 2
-                or len(spec["type"][-1].names) != 1
-                or not self.is_type_in_scope(spec["type"][-1].names[0])
-            ):
-                coord = "?"
-                for t in spec["type"]:
-                    if hasattr(t, "coord"):
-                        coord = t.coord
-                        break
+        elif decls_0["decl"] is None:
+            # When redeclaring typedef names as identifiers in inner scopes, a problem can occur where the identifier
+            # gets grouped into spec.type, leaving decl as None. This can only occur for the first declarator.
+            if len(spec.type) < 2 or len(spec.type[-1].names) != 1 or not self.is_type_in_scope(spec.type[-1].names[0]):
+                coord = next((t.coord for t in spec.type if hasattr(t, "coord")), "?")
+
                 msg = f"{coord}: Invalid declaration"
                 raise CParseError(msg)
 
             # Make this look as if it came from "direct_declarator:ID"
-            decls[0]["decl"] = c_ast.TypeDecl(
-                declname=spec["type"][-1].names[0],
+            decls_0["decl"] = c_ast.TypeDecl(
+                declname=spec.type[-1].names[0],
                 type=None,
                 quals=None,
-                align=spec["alignment"],
-                coord=spec["type"][-1].coord,
+                align=spec.alignment,
+                coord=spec.type[-1].coord,
             )
-            # Remove the "new" type's name from the end of spec["type"]
-            del spec["type"][-1]
+            # Remove the "new" type's name from the end of spec.type
+            del spec.type[-1]
 
-        elif not isinstance(decls[0]["decl"], (c_ast.Enum, c_ast.Struct, c_ast.Union, c_ast.IdType)):
-            # A similar problem can occur where the declaration ends up looking
-            # like an abstract declarator.  Give it a name if this is the case.
-            decls_0_tail = decls[0]["decl"]
+        elif not isinstance(decls_0["decl"], (c_ast.Enum, c_ast.Struct, c_ast.Union, c_ast.IdType)):
+            # A similar problem can occur where the declaration ends up looking like an abstract declarator.
+            # Give it a name if this is the case.
+            decls_0_tail = decls_0["decl"]
             while not isinstance(decls_0_tail, c_ast.TypeDecl):
                 decls_0_tail = decls_0_tail.type
             if decls_0_tail.declname is None:
-                decls_0_tail.declname = spec["type"][-1].names[0]
-                del spec["type"][-1]
+                decls_0_tail.declname = spec.type.pop(-1).names[0]
 
         for decl in decls:
             assert decl["decl"] is not None
             if is_typedef:
                 declaration = c_ast.Typedef(
                     name=None,
-                    quals=spec["qual"],
-                    storage=spec["storage"],
+                    quals=spec.qual,
+                    storage=spec.storage,
                     type=decl["decl"],
                     coord=decl["decl"].coord,
                 )
             else:
                 declaration = c_ast.Decl(
                     name=None,
-                    quals=spec["qual"],
-                    align=spec["alignment"],
-                    storage=spec["storage"],
-                    funcspec=spec["function"],
+                    quals=spec.qual,
+                    align=spec.alignment,
+                    storage=spec.storage,
+                    funcspec=spec.function,
                     type=decl["decl"],
                     init=decl.get("init"),
                     bitsize=decl.get("bitsize"),
@@ -441,10 +423,9 @@ class CParser(Parser):
             if isinstance(declaration.type, (c_ast.Enum, c_ast.Struct, c_ast.Union, c_ast.IdType)):
                 fixed_decl = declaration
             else:
-                fixed_decl = self._fix_decl_name_type(declaration, spec["type"])
+                fixed_decl = self._fix_decl_name_type(declaration, spec.type)
 
-            # Add the type name defined by typedef to a
-            # symbol table (for usage in the lexer)
+            # Add the type name defined by typedef to a symbol table (for usage in the lexer)
             if typedef_namespace:
                 if is_typedef:
                     self.add_typedef_name_to_scope(fixed_decl.name, fixed_decl.coord)
@@ -456,10 +437,10 @@ class CParser(Parser):
 
         return declarations
 
-    def _build_function_definition(self, spec: _DeclSpecifierDict, decl: Any, param_decls: Any, body: Any) -> Any:
+    def _build_function_definition(self, spec: _DeclarationSpecifiers, decl: Any, param_decls: Any, body: Any) -> Any:
         """Builds a function definition."""
 
-        if "typedef" in spec["storage"]:
+        if "typedef" in spec.storage:
             msg = f"{decl.coord}: Invalid typedef"
             raise CParseError(msg)
 
@@ -467,7 +448,15 @@ class CParser(Parser):
 
         return c_ast.FuncDef(decl=declaration, param_decls=param_decls, body=body, coord=decl.coord)
 
-    def _type_modify_decl(self, decl: Any, modifier: Any) -> Any:
+    @overload
+    def _type_modify_decl(self, decl: c_ast.TypeDecl, modifier: _ModifierT) -> _ModifierT: ...
+    @overload
+    def _type_modify_decl(self, decl: _ModifierT, modifier: c_ast.TypeModifier) -> _ModifierT: ...
+    def _type_modify_decl(
+        self,
+        decl: Union[c_ast.TypeDecl, _ModifierT],
+        modifier: Union[c_ast.TypeModifier, _ModifierT],
+    ) -> _ModifierT:
         """Tacks a type modifier on a declarator, and returns the modified declarator.
 
         The declarator and modifier may be modified.
@@ -484,8 +473,8 @@ class CParser(Parser):
 
         The basic declaration here is "int c", and the pointer and the array are the modifiers.
 
-        Basic declarations are represented by TypeDecl (from module ast_c) and the modifiers are
-        FuncDecl, PtrDecl and ArrayDecl.
+        Basic declarations are represented by `c_ast.TypeDecl`, and the modifiers are by
+        `c_ast.FuncDecl`, `c_ast.PtrDecl` and `c_ast.ArrayDecl`.
 
         The standard states that whenever a new modifier is parsed, it should be added to the end of the list of
         modifiers. For example:
@@ -497,30 +486,28 @@ class CParser(Parser):
             and the type of the identifier in the declaration T D1 is "type-modifier T",
             the type of the identifier of D is "type-modifier array of T".
 
-        This is what this method does. The declarator it receives can be a list of declarators ending with TypeDecl. It
-        tacks the modifier to the end of this list, just before the TypeDecl.
+        This is what this method does. The declarator it receives can be a list of declarators ending with
+        `c_ast.TypeDecl`. It tacks the modifier to the end of this list, just before the `TypeDecl`.
 
         Additionally, the modifier may be a list itself. This is useful for pointers, that can come as a chain from
         the rule "pointer". In this case, the whole modifier list is spliced into the new location.
         """
 
         modifier_head = modifier
-        modifier_tail = modifier
 
         # The modifier may be a nested list. Reach its tail.
+        modifier_tail = modifier
         while modifier_tail.type:
             modifier_tail = modifier_tail.type
 
-        # If the decl is a basic type, just tack the modifier onto it.
         if isinstance(decl, c_ast.TypeDecl):
+            # If the decl is a basic type, just tack the modifier onto it.
             modifier_tail.type = decl
             return modifier
         else:
-            # Otherwise, the decl is a list of modifiers. Reach
-            # its tail and splice the modifier onto the tail,
-            # pointing to the underlying basic type.
+            # Otherwise, the decl is a list of modifiers.
+            # Reach its tail and splice the modifier onto the tail, pointing to the underlying basic type.
             decl_tail = decl
-
             while not isinstance(decl_tail.type, c_ast.TypeDecl):
                 decl_tail = decl_tail.type
 
@@ -529,19 +516,6 @@ class CParser(Parser):
             return decl
 
     # endregion
-
-    precedence = (
-        ("left", LOR),
-        ("left", LAND),
-        ("left", OR),
-        ("left", XOR),
-        ("left", AND),
-        ("left", EQ, NE),
-        ("left", GT, GE, LT, LE),
-        ("left", RSHIFT, LSHIFT),
-        ("left", PLUS, MINUS),
-        ("left", TIMES, DIVIDE, MOD),
-    )
 
     # ============================================================================
     # region ---- Grammar productions
@@ -605,14 +579,8 @@ class CParser(Parser):
         Notes
         -----
         These encompass two types of C99-compatible pragmas:
-
-        - The #pragma directive:
-
-                # pragma character_sequence
-
-        - The _Pragma unary operator:
-
-                _Pragma ( " string_literal " )
+        - The #pragma directive: `# pragma character_sequence`
+        - The _Pragma unary operator: `_Pragma ( " string_literal " )`
         """
 
         return c_ast.Pragma("", coord=Coord.from_literal(p, p.PP_PRAGMA))
@@ -640,16 +608,10 @@ class CParser(Parser):
         """
 
         if p.declaration_specifiers:
-            spec = p.declaration_specifiers
+            spec: _DeclarationSpecifiers = p.declaration_specifiers
         else:
             # no declaration specifiers - "int" becomes the default type
-            spec: _DeclSpecifierDict = {
-                "qual": [],
-                "alignment": [],
-                "storage": [],
-                "type": [c_ast.IdType(["int"], coord=p.id_declarator.coord)],
-                "function": [],
-            }
+            spec = _DeclarationSpecifiers(type=[c_ast.IdType(["int"], coord=p.id_declarator.coord)])
 
         return self._build_function_definition(
             spec=spec,
@@ -759,7 +721,7 @@ class CParser(Parser):
         of Decl nodes, even if it's one element long.
         """
 
-        spec = p[0]
+        spec: _DeclarationSpecifiers = p[0]
 
         # p[1] is either a list or None
         #
@@ -772,16 +734,15 @@ class CParser(Parser):
             # declaring a structure tag, a union tag, or the members of an
             # enumeration.
             #
-            ty = spec["type"]
-            s_u_or_e = (c_ast.Struct, c_ast.Union, c_ast.Enum)
-            if len(ty) == 1 and isinstance(ty[0], s_u_or_e):
+            ty = spec.type
+            if len(ty) == 1 and isinstance(ty[0], (c_ast.Struct, c_ast.Union, c_ast.Enum)):
                 decls = [
                     c_ast.Decl(
                         name=None,
-                        quals=spec["qual"],
-                        align=spec["alignment"],
-                        storage=spec["storage"],
-                        funcspec=spec["function"],
+                        quals=spec.qual,
+                        align=spec.alignment,
+                        storage=spec.storage,
+                        funcspec=spec.function,
                         type=ty[0],
                         init=None,
                         bitsize=None,
@@ -856,7 +817,7 @@ class CParser(Parser):
         # fmt: on
 
         decl_kind = next(kind for qual_or_spec, kind in qualifiers_or_specifiers.items() if hasattr(p, qual_or_spec))
-        return self._add_declaration_specifier(p.declaration_specifiers_no_type, p[0], decl_kind)
+        return _DeclarationSpecifiers.add(p.declaration_specifiers_no_type, p[0], decl_kind)
 
     @_(
         "declaration_specifiers type_qualifier",
@@ -877,15 +838,15 @@ class CParser(Parser):
         # fmt: on
 
         decl_kind = next(kind for qual_or_spec, kind in qualifiers_or_specifiers.items() if hasattr(p, qual_or_spec))
-        return self._add_declaration_specifier(p.declaration_specifiers, p[1], decl_kind, append=True)
+        return _DeclarationSpecifiers.add(p.declaration_specifiers, p[1], decl_kind, append=True)
 
     @_("type_specifier")
     def declaration_specifiers(self, p: Any):
-        return self._add_declaration_specifier(None, p.type_specifier, "type")
+        return _DeclarationSpecifiers(type=[p.type_specifier])
 
     @_("declaration_specifiers_no_type type_specifier")
     def declaration_specifiers(self, p: Any):
-        return self._add_declaration_specifier(p.declaration_specifiers_no_type, p.type_specifier, "type", append=True)
+        return _DeclarationSpecifiers.add(p.declaration_specifiers_no_type, p.type_specifier, "type", append=True)
 
     @_("AUTO", "REGISTER", "STATIC", "EXTERN", "TYPEDEF", "THREAD_LOCAL_")
     def storage_class_specifier(self, p: Any):
@@ -916,7 +877,7 @@ class CParser(Parser):
     def type_specifier(self, p: Any):
         return p[0]
 
-    @_("ATOMIC_ '(' type_name ')'")
+    @_('ATOMIC_ "(" type_name ")"')
     def atomic_specifier(self, p: Any):
         """Handle an atomic specifier from C11.
 
@@ -961,38 +922,27 @@ class CParser(Parser):
     def specifier_qualifier_list(self, p: Any):
         """Handle a specifier qualifier list. At least one type specifier is required."""
 
-        return self._add_declaration_specifier(
-            p.specifier_qualifier_list,
-            p.type_specifier_no_typeid,
-            "type",
-            append=True,
-        )
+        return _DeclarationSpecifiers.add(p.specifier_qualifier_list, p.type_specifier_no_typeid, "type", append=True)
 
     @_("specifier_qualifier_list type_qualifier")
     def specifier_qualifier_list(self, p: Any):
-        return self._add_declaration_specifier(p.specifier_qualifier_list, p.type_qualifier, "qual", append=True)
+        return _DeclarationSpecifiers.add(p.specifier_qualifier_list, p.type_qualifier, "qual", append=True)
 
     @_("type_specifier")
     def specifier_qualifier_list(self, p: Any):
-        return self._add_declaration_specifier(None, p.type_specifier, "type")
+        return _DeclarationSpecifiers(type=[p.type_specifier])
 
     @_("type_qualifier_list type_specifier")
     def specifier_qualifier_list(self, p: Any):
-        return {
-            "qual": p.type_qualifier_list,
-            "alignment": [],
-            "storage": [],
-            "type": [p.type_specifier],
-            "function": [],
-        }
+        return _DeclarationSpecifiers(qual=p.type_qualifier_list, alignment=[p.type_specifier])
 
     @_("alignment_specifier")
     def specifier_qualifier_list(self, p: Any):
-        return {"qual": [], "alignment": [p.alignment_specifier], "storage": [], "type": [], "function": []}
+        return _DeclarationSpecifiers(alignment=[p.alignment_specifier])
 
     @_("specifier_qualifier_list alignment_specifier")
     def specifier_qualifier_list(self, p: Any):
-        return self._add_declaration_specifier(p.specifier_qualifier_list, p.alignment_specifier, "alignment")
+        return _DeclarationSpecifiers.add(p.specifier_qualifier_list, p.alignment_specifier, "alignment")
 
     @_("struct_or_union ID", "struct_or_union TYPEID")
     def struct_or_union_specifier(self, p: Any):
@@ -1043,19 +993,18 @@ class CParser(Parser):
 
     @_('specifier_qualifier_list [ struct_declarator_list ] ";"')
     def struct_declaration(self, p: Any):
-        spec = p.specifier_qualifier_list
-        assert "typedef" not in spec["storage"]
+        spec: _DeclarationSpecifiers = p.specifier_qualifier_list
+        assert "typedef" not in spec.storage
 
         if p.struct_declarator_list is not None:
             decls = self._build_declarations(spec, decls=p.struct_declarator_list)
 
-        elif len(spec["type"]) == 1:
-            # Anonymous struct/union, gcc extension, C1x feature.
-            # Although the standard only allows structs/unions here, I see no
-            # reason to disallow other types since some compilers have typedefs
-            # here, and pycparser isn't about rejecting all invalid code.
+        elif len(spec.type) == 1:
+            # Anonymous struct/union: gcc extension, C1x feature.
+            # Although the standard only allows structs/unions here, I see no reason to disallow other types since
+            # some compilers have typedefs here, and pycparser isn't about rejecting all invalid code.
             #
-            node = spec["type"][0]
+            node = spec.type[0]
             if isinstance(node, c_ast.AST):
                 decl_type = node
             else:
@@ -1150,40 +1099,40 @@ class CParser(Parser):
         return p[0]
 
     # ========
-    # Experimental usage of `subst` for SUB_declarator and direct_SUB_declarator rules.
+    # region Experimental usage of `subst` for $$$_declarator and direct_$$$_declarator rules.
     # ========
 
     # fmt: off
-    subst_id_multi = subst(
-        {"SUB1": "id",              "SUB2": "ID"},
-        {"SUB1": "typeid",          "SUB2": "TYPEID"},
-        {"SUB1": "typeid_noparen",  "SUB2": "TYPEID"},
+    subst_ids = subst(
+        {"_SUB1": "id",              "_SUB2": "ID"},
+        {"_SUB1": "typeid",          "_SUB2": "TYPEID"},
+        {"_SUB1": "typeid_noparen",  "_SUB2": "TYPEID"},
     )
     # fmt: on
 
-    @subst_id_multi
-    @_("direct_${SUB1}_declarator")
-    def SUB1_declarator(self, p: Any):
+    @subst_ids
+    @_("direct_${_SUB1}_declarator")
+    def _SUB1_declarator(self, p: Any) -> Union[c_ast.TypeDecl, c_ast.TypeModifier]:
         return p[0]
 
-    @subst_id_multi
-    @_("pointer direct_${SUB1}_declarator")
-    def SUB1_declarator(self, p: Any):
+    @subst_ids
+    @_("pointer direct_${_SUB1}_declarator")
+    def _SUB1_declarator(self, p: Any) -> Union[c_ast.TypeDecl, c_ast.TypeModifier]:
         return self._type_modify_decl(p[1], p.pointer)
 
-    @subst_id_multi
-    @_("${SUB2}")
-    def direct_SUB1_declarator(self, p: Any):
+    @subst_ids
+    @_("${_SUB2}")
+    def direct__SUB1_declarator(self, p: Any):
         return c_ast.TypeDecl(declname=p[0], type=None, quals=None, align=None, coord=Coord.from_literal(p, p[0]))
 
-    @subst({"SUB": "id"}, {"SUB": "typeid"})
-    @_('"(" ${SUB}_declarator ")"')
-    def direct_SUB_declarator(self, p: Any):
+    @subst({"_SUB1": "id"}, {"_SUB1": "typeid"})
+    @_('"(" ${_SUB1}_declarator ")"')
+    def direct__SUB1_declarator(self, p: Any):
         return p[1]
 
-    @subst_id_multi
-    @_('direct_${SUB1}_declarator "[" [ type_qualifier_list ] [ assignment_expression ] "]"')
-    def direct_SUB1_declarator(self, p: Any):
+    @subst_ids
+    @_('direct_${_SUB1}_declarator "[" [ type_qualifier_list ] [ assignment_expression ] "]"')
+    def direct__SUB1_declarator(self, p: Any):
         if p.type_qualifier_list and p.assignment_expression:
             dim = p.assignment_expression
             dim_quals: list[Any] = p.type_qualifier_list or []
@@ -1193,18 +1142,23 @@ class CParser(Parser):
 
         # Accept dimension qualifiers
         # Per C99 6.7.5.3 p7
-        arr = c_ast.ArrayDecl(type=None, dim=dim, dim_quals=dim_quals, coord=p[0].coord)
+        arr = c_ast.ArrayDecl(
+            type=None,  # pyright: ignore [reportArgumentType] # Gets fixed in _type_modify_decl.
+            dim=dim,
+            dim_quals=dim_quals,
+            coord=p[0].coord,
+        )
         return self._type_modify_decl(decl=p[0], modifier=arr)
 
-    @subst_id_multi
-    @_('direct_${SUB1}_declarator "[" STATIC [ type_qualifier_list ] assignment_expression "]"')
-    def direct_SUB1_declarator(self, p: Any):
+    @subst_ids
+    @_('direct_${_SUB1}_declarator "[" STATIC [ type_qualifier_list ] assignment_expression "]"')
+    def direct__SUB1_declarator(self, p: Any):
         listed_quals: list[list[Any]] = [
             (item if isinstance(item, list) else [item]) for item in [p.type_qualifier_list, p.assignment_expression]
         ]
         dim_quals = [qual for sublist in listed_quals for qual in sublist if qual is not None]
         arr = c_ast.ArrayDecl(
-            type=None,
+            type=None,  # pyright: ignore [reportArgumentType] # Gets fixed in _type_modify_decl.
             dim=p.assignment_expression,
             dim_quals=dim_quals,
             coord=p[0].coord,
@@ -1212,13 +1166,13 @@ class CParser(Parser):
 
         return self._type_modify_decl(decl=p[0], modifier=arr)
 
-    @subst_id_multi
-    @_('direct_${SUB1}_declarator "[" type_qualifier_list STATIC assignment_expression "]"')
-    def direct_SUB1_declarator(self, p: Any):
+    @subst_ids
+    @_('direct_${_SUB1}_declarator "[" type_qualifier_list STATIC assignment_expression "]"')
+    def direct__SUB1_declarator(self, p: Any):
         listed_quals: list[list[Any]] = [(item if isinstance(item, list) else [item]) for item in [p[3], p[4]]]
         dim_quals = [qual for sublist in listed_quals for qual in sublist if qual is not None]
         arr = c_ast.ArrayDecl(
-            type=None,
+            type=None,  # pyright: ignore [reportArgumentType] # Gets fixed in _type_modify_decl.
             dim=p.assignment_expression,
             dim_quals=dim_quals,
             coord=p[0].coord,
@@ -1226,13 +1180,13 @@ class CParser(Parser):
 
         return self._type_modify_decl(decl=p[0], modifier=arr)
 
-    # Special for VLAs
-    #
-    @subst_id_multi
-    @_('direct_${SUB1}_declarator "[" [ type_qualifier_list ] TIMES "]"')
-    def direct_SUB1_declarator(self, p: Any):
+    @subst_ids
+    @_('direct_${_SUB1}_declarator "[" [ type_qualifier_list ] TIMES "]"')
+    def direct__SUB1_declarator(self, p: Any):
+        """Special for VLAs."""
+
         arr = c_ast.ArrayDecl(
-            type=None,
+            type=None,  # pyright: ignore [reportArgumentType] # Gets fixed in _type_modify_decl.
             dim=c_ast.Id(p.TIMES, coord=p[0].coord),
             dim_quals=p.type_qualifier_list or [],
             coord=p[0].coord,
@@ -1240,29 +1194,30 @@ class CParser(Parser):
 
         return self._type_modify_decl(decl=p[0], modifier=arr)
 
-    @subst_id_multi
+    @subst_ids
     @_(
-        'direct_${SUB1}_declarator "(" parameter_type_list ")"',
-        'direct_${SUB1}_declarator "(" [ identifier_list ] ")"',
+        'direct_${_SUB1}_declarator "(" parameter_type_list ")"',
+        'direct_${_SUB1}_declarator "(" [ identifier_list ] ")"',
     )
-    def direct_SUB1_declarator(self, p: Any):
-        # TODO: Depends on an implementation detail of optional components to determine the difference. Consider
-        # separating for clarity.
-        args = p[2][0] if isinstance(p[2], tuple) else p[2]
-        func = c_ast.FuncDecl(args=args, type=None, coord=p[0].coord)
+    def direct__SUB1_declarator(self, p: Any):
+        # NOTE: This first line depends on an implementation detail, optional components being in tuples when accessed
+        # with numerical index, to determine the difference.
+        args = p[2] if not isinstance(p[2], tuple) else p[2][0]
+        func = c_ast.FuncDecl(
+            args=args,
+            type=None,  # pyright: ignore [reportArgumentType] # Gets fixed in _type_modify_decl.
+            coord=p[0].coord,
+        )
 
         # To see why the lookahead token is needed, consider:
         #   typedef char TT;
         #   void foo(int TT) { TT = 10; }
-        # Outside the function, TT is a typedef, but inside (starting and
-        # ending with the braces) it's a parameter.  The trouble begins with
-        # yacc's lookahead token.  We don't know if we're declaring or
-        # defining a function until we see LBRACE, but if we wait for yacc to
-        # trigger a rule on that token, then TT will have already been read
-        # and incorrectly interpreted as TYPEID.  We need to add the
-        # parameters to the scope the moment the lexer sees LBRACE.
+        # Outside the function, TT is a typedef, but inside (starting and ending with the braces) it's a parameter.
+        # The trouble begins with yacc's lookahead token. We don't know if we're declaring or defining a function
+        # until we see LBRACE, but if we wait for yacc to trigger a rule on that token, then TT will have already been
+        # read and incorrectly interpreted as TYPEID.
+        # We need to add the parameters to the scope the moment the lexer sees LBRACE.
         #
-
         if self.lookahead.type == "LBRACE" and func.args is not None:
             for param in func.args.params:
                 if isinstance(param, c_ast.EllipsisParam):
@@ -1271,7 +1226,9 @@ class CParser(Parser):
 
         return self._type_modify_decl(decl=p[0], modifier=func)
 
-    del subst_id_multi
+    del subst_ids
+
+    # endregion
 
     @_("TIMES [ type_qualifier_list ] [ pointer ]")
     def pointer(self, p: Any):
@@ -1295,9 +1252,11 @@ class CParser(Parser):
         So when we construct PtrDecl nestings, the leftmost pointer goes in as the most nested type.
         """
 
-        coord = Coord.from_literal(p, p.TIMES)
-
-        nested_type = c_ast.PtrDecl(quals=p.type_qualifier_list or [], type=None, coord=coord)
+        nested_type = c_ast.PtrDecl(
+            quals=p.type_qualifier_list or [],
+            type=None,  # pyright: ignore [reportArgumentType] # Gets fixed in _type_modify_decl.
+            coord=Coord.from_literal(p, p.TIMES),
+        )
 
         if p.pointer is not None:
             tail_type = p.pointer
@@ -1350,37 +1309,32 @@ class CParser(Parser):
         `id_declarator`s and `typeid_noparen_declarator`s.
         """
 
-        spec = p.declaration_specifiers
-        if not spec["type"]:
-            spec["type"] = [c_ast.IdType(["int"], coord=Coord.from_prod(self, p.declaration_specifiers))]
+        spec: _DeclarationSpecifiers = p.declaration_specifiers
+        if not spec.type:
+            spec.type = [c_ast.IdType(["int"], coord=Coord.from_prod(self, p.declaration_specifiers))]
         return self._build_declarations(spec, decls=[{"decl": p[1]}])[0]
 
     @_("declaration_specifiers [ abstract_declarator ]")
     def parameter_declaration(self, p: Any):
-        spec = p.declaration_specifiers
-        if not spec["type"]:
-            spec["type"] = [c_ast.IdType(["int"], coord=Coord.from_prod(self, p.declaration_specifiers))]
+        spec: _DeclarationSpecifiers = p.declaration_specifiers
+        if not spec.type:
+            spec.type = [c_ast.IdType(["int"], coord=Coord.from_prod(self, p.declaration_specifiers))]
 
-        # Parameters can have the same names as typedefs.  The trouble is that
-        # the parameter's name gets grouped into declaration_specifiers, making
-        # it look like an old-style declaration; compensate.
-        if (
-            len(spec["type"]) > 1
-            and len(spec["type"][-1].names) == 1
-            and self.is_type_in_scope(spec["type"][-1].names[0])
-        ):
+        # Parameters can have the same names as typedefs. The trouble is that the parameter's name gets grouped into
+        # declaration_specifiers, making it look like an old-style declaration; compensate.
+        if len(spec.type) > 1 and len(spec.type[-1].names) == 1 and self.is_type_in_scope(spec.type[-1].names[0]):
             decl = self._build_declarations(spec, decls=[{"decl": p.abstract_declarator, "init": None}])[0]
 
         # This truly is an old-style parameter declaration.
         else:
             decl = c_ast.Typename(
                 name="",
-                quals=spec["qual"],
+                quals=spec.qual,
                 align=None,
                 type=p.abstract_declarator or c_ast.TypeDecl(None, None, None, None),
                 coord=Coord.from_prod(self, p.declaration_specifiers),
             )
-            typename = spec["type"]
+            typename = spec.type
             decl = self._fix_decl_name_type(decl, typename)
 
         return decl
@@ -1436,15 +1390,16 @@ class CParser(Parser):
 
     @_("specifier_qualifier_list [ abstract_declarator ]")
     def type_name(self, p: Any):
+        spec_list: _DeclarationSpecifiers = p.specifier_qualifier_list
         typename = c_ast.Typename(
             name="",
-            quals=p.specifier_qualifier_list["qual"][:],
+            quals=spec_list.qual[:],
             align=None,
             type=p.abstract_declarator or c_ast.TypeDecl(None, None, None, None),
-            coord=Coord.from_prod(self, p.specifier_qualifier_list),
+            coord=Coord.from_prod(self, spec_list),
         )
 
-        return self._fix_decl_name_type(typename, p.specifier_qualifier_list["type"])
+        return self._fix_decl_name_type(typename, spec_list.type)
 
     @_("pointer")
     def abstract_declarator(self, p: Any):
@@ -1471,7 +1426,7 @@ class CParser(Parser):
     @_('direct_abstract_declarator "[" [ assignment_expression ] "]"')
     def direct_abstract_declarator(self, p: Any):
         arr = c_ast.ArrayDecl(
-            type=None,
+            type=None,  # pyright: ignore [reportArgumentType] # Gets fixed in _type_modify_decl.
             dim=p.assignment_expression,
             dim_quals=[],
             coord=p.direct_abstract_declarator.coord,
@@ -1494,7 +1449,7 @@ class CParser(Parser):
     @_('direct_abstract_declarator "[" TIMES "]"')
     def direct_abstract_declarator(self, p: Any):
         arr = c_ast.ArrayDecl(
-            type=None,
+            type=None,  # pyright: ignore [reportArgumentType] # Gets fixed in _type_modify_decl.
             dim=c_ast.Id(p.TIMES, coord=Coord.from_literal(p, p.TIMES)),
             dim_quals=[],
             coord=p.direct_abstract_declarator.coord,
@@ -1513,7 +1468,11 @@ class CParser(Parser):
 
     @_('direct_abstract_declarator "(" [ parameter_type_list ] ")"')
     def direct_abstract_declarator(self, p: Any):
-        func = c_ast.FuncDecl(args=p.parameter_type_list, type=None, coord=p.direct_abstract_declarator.coord)
+        func = c_ast.FuncDecl(
+            args=p.parameter_type_list,
+            type=None,  # pyright: ignore [reportArgumentType] # Gets fixed in _type_modify_decl.
+            coord=p.direct_abstract_declarator.coord,
+        )
         return self._type_modify_decl(decl=p.direct_abstract_declarator, modifier=func)
 
     @_('"(" [ parameter_type_list ] ")"')

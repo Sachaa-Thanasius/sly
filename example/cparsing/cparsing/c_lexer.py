@@ -85,10 +85,9 @@ _hex_fractional_constant = "(((" + _hex_digits + r""")?\.""" + _hex_digits + ")|
 
 def _find_token_column(text: str, t: Token) -> int:
     last_cr = text.rfind("\n", 0, t.index)
-    # if last_cr < 0:
-    #     last_cr = 0
-    # return (t.index - last_cr) + 1
-    return t.index - last_cr
+    if last_cr < 0:
+        last_cr = 0
+    return (t.index - last_cr) + 1
 
 
 class CLexError(Exception):

@@ -2,21 +2,12 @@
 
 import sys
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 
-if sys.version_info >= (3, 9, 2):  # noqa: UP036 # Users might still be on 3.9.0.
+if sys.version_info >= (3, 9, 2):  # noqa: UP036 # Subclassing functionality not added until then.
     from types import GenericAlias as _GenericAlias
-elif TYPE_CHECKING:
-
-    class _GenericAlias:
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            pass
-
 else:  # pragma: no cover
     from typing import _GenericAlias
-
-
-_CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
 
 
 __all__ = ("NotRequired", "Self", "TypeAlias", "TypeGuard", "dataclass_transform", "override")
@@ -27,7 +18,9 @@ if sys.version_info >= (3, 12):  # pragma: >=3.12 cover
 elif TYPE_CHECKING:
     from typing_extensions import dataclass_transform, override
 else:  # pragma: <3.12 cover
-    from typing import Union
+    from typing import TypeVar, Union
+
+    _T = TypeVar("_T", bound=Callable[..., Any])
 
     def dataclass_transform(
         *,
@@ -37,8 +30,8 @@ else:  # pragma: <3.12 cover
         frozen_default: bool = False,
         field_specifiers: tuple[Union[type[Any], Callable[..., Any]], ...] = (),
         **kwargs: Any,
-    ) -> Callable[[_CallableT], _CallableT]:
-        def decorator(cls_or_fn: _CallableT) -> _CallableT:
+    ) -> Callable[[_T], _T]:
+        def decorator(cls_or_fn: _T) -> _T:
             cls_or_fn.__dataclass_transform__ = {
                 "eq_default": eq_default,
                 "order_default": order_default,
@@ -51,7 +44,7 @@ else:  # pragma: <3.12 cover
 
         return decorator
 
-    def override(arg: _CallableT) -> _CallableT:
+    def override(arg: _T) -> _T:
         try:
             arg.__override__ = True
         except AttributeError:  # pragma: no cover
@@ -83,7 +76,7 @@ else:  # pragma: <3.11 cover
     class NotRequired(metaclass=_PlaceholderMeta):
         pass
 
-    class Self(metaclass=_PlaceholderMeta):
+    class Self:
         pass
 
 
@@ -96,5 +89,5 @@ else:  # pragma: <3.10 cover
     class TypeGuard(metaclass=_PlaceholderMeta):
         pass
 
-    class TypeAlias(metaclass=_PlaceholderMeta):
+    class TypeAlias:
         pass

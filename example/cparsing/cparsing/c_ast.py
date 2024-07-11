@@ -5,7 +5,7 @@ import contextlib
 from collections import deque
 from collections.abc import Generator, MutableSequence
 from io import StringIO
-from types import GeneratorType
+from types import GeneratorType, MemberDescriptorType
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Literal, Optional
 from typing import Union as TUnion
 
@@ -53,6 +53,7 @@ __all__ = (
     "Enum",
     "FuncCall",
     "FuncDecl",
+    "TypeModifier",
     "FuncDef",
     "IdType",
     "InitList",
@@ -75,7 +76,7 @@ __all__ = (
 )
 
 # ============================================================================
-# region -------- AST Nodes
+# region -------- AST Nodes --------
 # ============================================================================
 
 
@@ -89,7 +90,16 @@ else:
     class AST(Datum):
         __slots__ = ("__weakref__", "coord")
 
-        _fields: ClassVar = ()
+        _fields: ClassVar[tuple[str, ...]] = ()
+
+        @classmethod
+        def __init_subclass__(cls, **kwargs: object) -> None:
+            """Automatically populate `_fields`."""
+
+            super().__init_subclass__(**kwargs)
+            cls._fields = tuple(
+                name for name, ann in all_clues(cls).items() if not isinstance(ann, MemberDescriptorType)
+            )
 
         @cluegen
         def __init__(cls: type[Self]) -> str:  # pyright: ignore
@@ -121,37 +131,31 @@ else:
 
 
 class File(AST):
-    __slots__ = _fields = ("ext",)
     ext: list[AST]
 
 
 class ExprList(AST):
-    __slots__ = _fields = ("exprs",)
     exprs: list[AST]
 
 
 class Enumerator(AST):
-    __slots__ = _fields = ("name", "value")
     name: str
     value: Optional[AST]
 
 
 class EnumeratorList(AST):
-    __slots__ = _fields = ("enumerators",)
     enumerators: list[Enumerator]
 
 
 class ParamList(AST):
-    __slots__ = _fields = ("params",)
     params: list[AST]
 
 
 class EllipsisParam(AST):
-    __slots__ = _fields = ()
+    pass
 
 
 class Compound(AST):
-    __slots__ = _fields = ("block_items",)
     block_items: list[AST]
 
 
@@ -161,7 +165,6 @@ class Compound(AST):
 
 
 class For(AST):
-    __slots__ = _fields = ("init", "cond", "next", "stmt")
     init: Optional[AST]
     cond: Optional[AST]
     next: Optional[AST]
@@ -169,13 +172,11 @@ class For(AST):
 
 
 class While(AST):
-    __slots__ = _fields = ("cond", "stmt")
     cond: AST
     stmt: AST
 
 
 class DoWhile(AST):
-    __slots__ = _fields = ("cond", "stmt")
     cond: AST
     stmt: AST
 
@@ -184,50 +185,43 @@ class DoWhile(AST):
 
 
 class Goto(AST):
-    __slots__ = _fields = ("name",)
     name: str
 
 
 class Label(AST):
-    __slots__ = _fields = ("name", "stmt")
     name: str
     stmt: AST
 
 
 class Switch(AST):
-    __slots__ = _fields = ("cond", "stmt")
     cond: AST
     stmt: AST
 
 
 class Case(AST):
-    __slots__ = _fields = ("expr", "stmts")
     expr: AST
     stmts: list[AST]
 
 
 class Default(AST):
-    __slots__ = _fields = ("stmts",)
     stmts: list[AST]
 
 
 class If(AST):
-    __slots__ = _fields = ("cond", "iftrue", "iffalse")
     cond: AST
     iftrue: AST
     iffalse: Optional[AST]
 
 
 class Continue(AST):
-    __slots__ = _fields = ()
+    pass
 
 
 class Break(AST):
-    __slots__ = _fields = ()
+    pass
 
 
 class Return(AST):
-    __slots__ = _fields = ("expr",)
     expr: AST
 
 
@@ -235,27 +229,23 @@ class Return(AST):
 
 
 class Assignment(AST):
-    __slots__ = _fields = ("op", "left", "right")
     op: str
     left: AST
     right: AST
 
 
 class UnaryOp(AST):
-    __slots__ = _fields = ("op", "expr")
     op: str
     expr: AST
 
 
 class BinaryOp(AST):
-    __slots__ = _fields = ("op", "left", "right")
     op: str
     left: AST
     right: AST
 
 
 class TernaryOp(AST):
-    __slots__ = _fields = ("cond", "iftrue", "iffalse")
     cond: AST
     iftrue: AST
     iffalse: AST
@@ -265,151 +255,141 @@ class TernaryOp(AST):
 
 
 class Pragma(AST):
-    __slots__ = _fields = ("string",)
     string: str
 
 
 class Id(AST):
-    __slots__ = _fields = ("name",)
     name: str
 
 
 class Constant(AST):
-    __slots__ = _fields = ("type", "value")
     type: str
     value: str
 
 
 class EmptyStatement(AST):
-    __slots__ = _fields = ()
+    pass
 
 
 # -------- Other
 
 
+class IdType(AST):
+    names: list[str]
+
+
+# ---- Struct/Union/Enum
+class Struct(AST):
+    name: Optional[str]
+    decls: Optional[list[AST]]
+
+
+class Union(AST):
+    name: Optional[str]
+    decls: Optional[list[AST]]
+
+
+class Enum(AST):
+    name: Optional[str]
+    values: Optional[EnumeratorList]
+
+
+# ---- Type declaration
+class TypeDecl(AST):
+    declname: Optional[str]
+    quals: Optional[Any]
+    align: Optional[Any]
+    type: Optional[TUnion[IdType, Struct, Union, Enum]]
+
+
+# ---- Type modifiers
 class ArrayDecl(AST):
-    __slots__ = _fields = ("type", "dim", "dim_quals")
-    type: AST
+    type: TUnion[TypeDecl, "PtrDecl", "ArrayDecl"]
     dim: Optional[AST]
     dim_quals: list[str]
 
 
+class FuncDecl(AST):
+    args: Optional[ParamList]
+    type: TUnion[TypeDecl, "PtrDecl"]
+
+
+class PtrDecl(AST):
+    quals: Any
+    type: TUnion[TypeDecl, "PtrDecl", FuncDecl, ArrayDecl]
+
+
+TypeModifier = TUnion[PtrDecl, FuncDecl, ArrayDecl]
+
+
+# ---- Parent decl
+class Decl(AST):
+    name: Optional[str]
+    type: TUnion[TypeDecl, TypeModifier, IdType, Struct, Union, Enum]
+    quals: list[str] = []
+    align: list["Alignas"] = []
+    storage: list[str] = []
+    funcspec: list[Any] = []
+    init: Optional[AST] = None
+    bitsize: Optional[AST] = None
+
+
+# ---- Rest
 class ArrayRef(AST):
-    __slots__ = _fields = ("name", "subscript")
     name: AST
     subscript: AST
 
 
 class Alignas(AST):
-    __slots__ = _fields = ("alignment",)
     alignment: AST
 
 
 class Cast(AST):
-    __slots__ = _fields = ("to_type", "expr")
     to_type: AST
     expr: AST
 
 
 class CompoundLiteral(AST):
-    __slots__ = _fields = ("type", "init")
     type: AST
     init: AST
 
 
-class Decl(AST):
-    __slots__ = _fields = ("name", "quals", "align", "storage", "funcspec", "type", "init", "bitsize")
-    name: Optional[str]
-    quals: list[str]
-    align: list[Alignas]
-    storage: list[str]
-    funcspec: list[Any]
-    type: AST
-    init: Optional[AST]
-    bitsize: Optional[AST]
-
-
 class DeclList(AST):
-    __slots__ = _fields = ("decls",)
     decls: list[Decl]
 
 
-class Enum(AST):
-    __slots__ = _fields = ("name", "values")
-    name: Optional[str]
-    values: Optional[EnumeratorList]
-
-
 class FuncCall(AST):
-    __slots__ = _fields = ("name", "args")
     name: Id
     args: ExprList
 
 
-class FuncDecl(AST):
-    __slots__ = _fields = ("args", "type")
-    args: Optional[ParamList]
-    type: AST
-
-
 class FuncDef(AST):
-    __slots__ = _fields = ("decl", "param_decls", "body")
     decl: AST
     param_decls: Optional[list[AST]]
     body: AST
 
 
-class IdType(AST):
-    __slots__ = _fields = ("names",)
-    names: list[str]
-
-
 class InitList(AST):
-    __slots__ = _fields = ("exprs",)
     exprs: list[AST]
 
 
 class NamedInitializer(AST):
-    __slots__ = _fields = ("name", "expr")
     name: list[AST]
     expr: AST
 
 
-class PtrDecl(AST):
-    __slots__ = _fields = ("quals", "type")
-    quals: Any
-    type: AST
-
-
 class StaticAssert(AST):
-    __slots__ = _fields = ("cond", "message")
     cond: AST
     message: Optional[AST]
 
 
-class Struct(AST):
-    __slots__ = _fields = ("name", "decls")
-    name: Optional[str]
-    decls: Optional[list[AST]]
-
-
 class StructRef(AST):
-    __slots__ = _fields = ("name", "type", "field")
     name: AST
     type: Any
     field: AST
 
 
-class TypeDecl(AST):
-    __slots__ = _fields = ("declname", "quals", "align", "type")
-    declname: Optional[str]
-    quals: Optional[Any]
-    align: Optional[Any]
-    type: Optional[AST]
-
-
 class Typedef(AST):
-    __slots__ = _fields = ("name", "quals", "storage", "type")
     name: Optional[str]
     quals: list[str]
     storage: list[Any]
@@ -417,17 +397,10 @@ class Typedef(AST):
 
 
 class Typename(AST):
-    __slots__ = _fields = ("name", "quals", "align", "type")
     name: Optional[str]
     quals: list[str]
     align: Optional[Any]
     type: AST
-
-
-class Union(AST):
-    __slots__ = _fields = ("name", "decls")
-    name: Optional[str]
-    decls: Optional[list[AST]]
 
 
 # endregion
@@ -440,7 +413,42 @@ class Union(AST):
 # ============================================================================
 
 
-_SimpleNode: TypeAlias = TUnion[Constant, Id, ArrayRef, StructRef, FuncCall]
+def compare_asts(first_node: TUnion[AST, MutableSequence[AST]], second_node: TUnion[AST, MutableSequence[AST]]) -> bool:
+    """Compare two AST nodes for equality, to see if they have the same field structure with the same values.
+
+    This only takes into account fields present in a node's _fields list while ignoring "coord".
+
+    Notes
+    -----
+    The algorithm is based on https://stackoverflow.com/a/19598419, but modified to be iterative instead of recursive.
+    """
+
+    nodes: deque[tuple[TUnion[AST, list[AST], Any], TUnion[AST, list[AST], Any]]] = deque([(first_node, second_node)])
+
+    while nodes:
+        node1, node2 = nodes.pop()
+
+        if type(node1) is not type(node2):
+            return False
+
+        if isinstance(node1, AST):
+            nodes.extend((getattr(node1, field), getattr(node2, field)) for field in node1._fields if field != "coord")
+            continue
+
+        if isinstance(node1, list):
+            assert isinstance(node2, list)
+
+            # zip(..., strict=True) is only on >=3.10.
+            if len(node1) != len(node2):
+                return False
+            nodes.extend(zip(node1, node2))
+
+            continue
+
+        if node1 != node2:
+            return False
+
+    return True
 
 
 def iter_child_nodes(node: AST) -> Generator[AST, Any, None]:
@@ -653,6 +661,9 @@ def dump(
 # ========
 # region ---- Unparser
 # ========
+
+
+_SimpleNode: TypeAlias = TUnion[Constant, Id, ArrayRef, StructRef, FuncCall]
 
 
 class _Unparser(NodeVisitor):
@@ -1269,44 +1280,6 @@ def unparse(node: AST, *, reduce_parentheses: bool = False) -> str:
 
     unparser = _Unparser(reduce_parentheses=reduce_parentheses)
     return unparser.visit(node)
-
-
-def compare_asts(first_node: TUnion[AST, MutableSequence[AST]], second_node: TUnion[AST, MutableSequence[AST]]) -> bool:
-    """Compare two AST nodes for equality, to see if they have the same field structure with the same values.
-
-    This only takes into account fields present in a node's _fields list while ignoring "coord".
-
-    Notes
-    -----
-    The algorithm is modified from https://stackoverflow.com/a/19598419 to be iterative instead of recursive.
-    """
-
-    nodes: deque[tuple[TUnion[AST, list[AST], Any], TUnion[AST, list[AST], Any]]] = deque([(first_node, second_node)])
-
-    while nodes:
-        node1, node2 = nodes.pop()
-
-        if type(node1) is not type(node2):
-            return False
-
-        if isinstance(node1, AST):
-            nodes.extend((getattr(node1, field), getattr(node2, field)) for field in node1._fields if field != "coord")
-            continue
-
-        if isinstance(node1, list):
-            assert isinstance(node2, list)
-
-            # zip(..., strict=True) is only on >=3.10.
-            if len(node1) != len(node2):
-                return False
-            nodes.extend(zip(node1, node2))
-
-            continue
-
-        if node1 != node2:
-            return False
-
-    return True
 
 
 # endregion

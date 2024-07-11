@@ -4,12 +4,8 @@ from collections.abc import Sequence
 from typing import Optional, Union
 
 from . import c_ast
-from ._typing_compat import TypeAlias
 from .c_lexer import CLexer
 from .c_parser import CParser
-
-_StrPath: TypeAlias = Union[str, os.PathLike[str]]
-
 
 __all__ = ("CContext", "parse", "preprocess_file", "parse_file")
 
@@ -20,14 +16,21 @@ class CContext:
         self.parser = parser_type(self)
         self.scope_stack: ChainMap[str, bool] = ChainMap()
         self.source = ""
-        self.ast: Optional[c_ast.AST] = None
+        self._ast: Optional[c_ast.File] = None
+
+    @property
+    def ast(self) -> c_ast.File:
+        if self._ast is None:
+            msg = "ast does not exist yet; parse() has not been run."
+            raise AttributeError(msg)
+        return self._ast
 
     def parse(self, source: str) -> None:
         self.source = source
-        self.ast = self.parser.parse(self.lexer.tokenize(source))
+        self._ast = self.parser.parse(self.lexer.tokenize(source))
 
 
-def parse(source: str, filename: str = "", parser_type: type[CParser] = CParser) -> Optional["c_ast.AST"]:
+def parse(source: str, filename: str = "", parser_type: type[CParser] = CParser) -> "c_ast.File":
     context = CContext(parser_type)
     context.parse(source)
     return context.ast
@@ -72,14 +75,14 @@ def preprocess_file(filename: str, cpp_path: str = "cpp", cpp_args: Sequence[str
 
 
 def parse_file(
-    file: _StrPath,
+    file: Union[str, os.PathLike[str]],
     encoding: str = "utf-8",
     *,
     use_cpp: bool = False,
     cpp_path: str = "cpp",
     cpp_args: Sequence[str] = (),
     parser_type: type[CParser] = CParser,
-) -> Optional["c_ast.AST"]:
+) -> "c_ast.File":
     if use_cpp:
         source = preprocess_file(os.fspath(file), cpp_path, cpp_args)
     else:

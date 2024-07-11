@@ -118,3 +118,24 @@ Compound(
 """
 
     assert c_ast.dump(comp, 4) == expected
+
+
+def test_true_ast_comparison():
+    c1 = c_ast.Constant(type="float", value="5.6")
+    c2 = c_ast.Constant(type="char", value="t")
+
+    b1 = c_ast.BinaryOp(op="+", left=c1, right=c2)
+    b2 = c_ast.BinaryOp(op="+", left=c1, right=c2)
+    assert c_ast.compare_asts(b1, b2)
+    assert b1 == b2
+
+
+def test_false_ast_comparison():
+    c1 = c_ast.Constant(type="float", value="5.6")
+    c2 = c_ast.Constant(type="char", value="t")
+
+    b1 = c_ast.BinaryOp(op="+", left=c1, right=c2)
+    b2 = c_ast.BinaryOp(op="+", left=c1, right=c1)
+
+    assert not c_ast.compare_asts(b1, b2)
+    assert b1 != b2
