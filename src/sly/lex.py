@@ -195,7 +195,7 @@ class LexerMetaDict(dict[str, Any]):
     def __missing__(self, key: str) -> TokenStr:
         if key.split("ignore_")[-1].isupper() and key[:1] != "_":
             return TokenStr(key, key, self.remap)
-        raise KeyError
+        raise KeyError(key)
 
 
 def _match_action_decorator(pattern: str, *extra: str) -> Callable[[CallableT], CallableT]:

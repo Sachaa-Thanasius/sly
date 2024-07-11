@@ -6,7 +6,7 @@ from collections import deque
 from collections.abc import Generator, MutableSequence
 from io import StringIO
 from types import GeneratorType, MemberDescriptorType
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Literal, Optional
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Optional
 from typing import Union as TUnion
 
 from ._cluegen import Datum, all_clues, all_defaults, cluegen
@@ -140,7 +140,7 @@ class ExprList(AST):
 
 class Enumerator(AST):
     name: str
-    value: Optional[AST]
+    value: Optional[AST] = None
 
 
 class EnumeratorList(AST):
@@ -281,7 +281,7 @@ class IdType(AST):
 # ---- Struct/Union/Enum
 class Struct(AST):
     name: Optional[str]
-    decls: Optional[list[AST]]
+    decls: Optional[list[AST]] = None
 
 
 class Union(AST):
@@ -296,10 +296,10 @@ class Enum(AST):
 
 # ---- Type declaration
 class TypeDecl(AST):
-    declname: Optional[str]
-    quals: Optional[Any]
-    align: Optional[Any]
-    type: Optional[TUnion[IdType, Struct, Union, Enum]]
+    declname: Optional[str] = None
+    quals: Optional[list[str]] = []
+    align: Optional[Any] = None
+    type: Optional[TUnion[IdType, Struct, Union, Enum]] = None
 
 
 # ---- Type modifiers
@@ -315,7 +315,7 @@ class FuncDecl(AST):
 
 
 class PtrDecl(AST):
-    quals: Any
+    quals: list[str]
     type: TUnion[TypeDecl, "PtrDecl", FuncDecl, ArrayDecl]
 
 
@@ -370,7 +370,7 @@ class FuncDef(AST):
 
 
 class InitList(AST):
-    exprs: list[AST]
+    exprs: list[AST] = []
 
 
 class NamedInitializer(AST):
@@ -400,7 +400,7 @@ class Typename(AST):
     name: Optional[str]
     quals: list[str]
     align: Optional[Any]
-    type: AST
+    type: TUnion[TypeDecl, TypeModifier]
 
 
 # endregion
@@ -520,7 +520,7 @@ class _NodePrettyPrinter(NodeVisitor):
         *,
         annotate_fields: bool = True,
         include_coords: bool = False,
-    ):
+    ) -> None:
         self.indent = (" " * indent) if isinstance(indent, int) else indent
         self.annotate_fields = annotate_fields
         self.include_coords = include_coords
@@ -688,13 +688,14 @@ class _Unparser(NodeVisitor):
     }
     # fmt: on
 
-    def __init__(self, *, reduce_parentheses: bool = False):
-        self.indent_level = 0
+    def __init__(self, *, reduce_parentheses: bool = False) -> None:
         self.reduce_parentheses = reduce_parentheses
+        self.buffer = StringIO()
+        self.indent_level = 0
 
     @property
     def indent(self) -> str:
-        return " " * self.indent_level
+        return "    " * self.indent_level
 
     @contextlib.contextmanager
     def add_indent_level(self, val: int = 1) -> Generator[None, Any, None]:
@@ -709,11 +710,11 @@ class _Unparser(NodeVisitor):
         return isinstance(node, (Constant, Id, ArrayRef, StructRef, FuncCall))
 
     @override
-    def generic_visit(self, node: Optional[AST]) -> TUnion[Generator[AST, Any, None], Literal[""]]:
+    def generic_visit(self, node: Optional[AST]) -> Generator[AST, Any, str]:
         if node is None:
             return ""
         else:
-            return super().generic_visit(node)
+            yield from super().generic_visit(node)
 
     def _visit_expression(self, node: AST) -> Generator[AST, str, str]:
         expr = yield node
@@ -746,8 +747,6 @@ class _Unparser(NodeVisitor):
         different treatment of some statements in this context.
         """
 
-        typ = type(node)
-
         with contextlib.ExitStack() as ctx:
             if add_indent:
                 ctx.enter_context(self.add_indent_level(2))
@@ -755,32 +754,35 @@ class _Unparser(NodeVisitor):
 
         result = yield node
 
-        if typ in {
-            Decl,
-            Assignment,
-            Cast,
-            UnaryOp,
-            BinaryOp,
-            TernaryOp,
-            FuncCall,
-            ArrayRef,
-            StructRef,
-            Constant,
-            Id,
-            Typedef,
-            ExprList,
-        }:
+        if isinstance(
+            node,
+            (
+                Decl,
+                Assignment,
+                Cast,
+                UnaryOp,
+                BinaryOp,
+                TernaryOp,
+                FuncCall,
+                ArrayRef,
+                StructRef,
+                Constant,
+                Id,
+                Typedef,
+                ExprList,
+            ),
+        ):
             # These can also appear in an expression context so no semicolon
             # is added to them automatically
             #
             return f"{indent}{result};\n"
-        elif typ is Compound:
+        elif isinstance(node, Compound):
             # No extra indentation required before the opening brace of a
             # compound - because it consists of multiple lines it has to
             # compute its own indentation.
             #
             return result
-        elif typ is If:
+        elif isinstance(node, If):
             return f"{indent}{result}"
         else:
             return f"{indent}{result}\n"
@@ -804,11 +806,18 @@ class _Unparser(NodeVisitor):
     def _generate_type(
         self,
         node: AST,
-        modifiers: Optional[list[Any]] = None,
+        modifiers: Optional[list[TypeModifier]] = None,
         emit_declname: bool = True,
     ) -> Generator[AST, str, str]:
-        """Recursive generation from a type node. n is the type node. modifiers collects the PtrDecl, ArrayDecl and
-        FuncDecl modifiers encountered on the way down to a TypeDecl, to allow proper generation from it.
+        """Recursive generation from a type node.
+
+        Parameters
+        ----------
+        node: AST
+            The type node.
+        modifiers: Optional[list[TypeModifier]], default=None
+            List that collects the PtrDecl, ArrayDecl and FuncDecl modifiers encountered on the way down to a TypeDecl,
+            to allow proper generation from it.
         """
 
         if modifiers is None:
@@ -1276,7 +1285,7 @@ class _Unparser(NodeVisitor):
 
 
 def unparse(node: AST, *, reduce_parentheses: bool = False) -> str:
-    """Unparse an AST object and generate a string with code that would produce an equivalent AST object if parsed back."""
+    """Unparse an AST object, generating a code string that would produce an equivalent AST object if parsed back."""
 
     unparser = _Unparser(reduce_parentheses=reduce_parentheses)
     return unparser.visit(node)

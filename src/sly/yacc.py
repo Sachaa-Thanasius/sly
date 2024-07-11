@@ -2050,7 +2050,7 @@ class ParserMetaDict(dict[str, Any]):
     def __missing__(self, key: str) -> str:
         if key.isupper() and key[:1] != "_":
             return key.upper()
-        raise KeyError
+        raise KeyError(key)
 
     def __chain_rules(self, key: str, value: Any) -> None:
         """Link rules with matching names, as long as they are actually rules."""

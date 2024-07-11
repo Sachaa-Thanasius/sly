@@ -281,29 +281,30 @@ class CParser(Parser):
 
     def __init__(self, context: "c_context.CContext") -> None:
         self.context = context
+        self.scope_stack = context.scope_stack
 
     # ============================================================================
-    # region ---- Scope modification helpers
+    # region ---- Scope helpers
     # ============================================================================
 
     def is_type_in_scope(self, name: str) -> bool:
-        return self.context.scope_stack.get(name, False)
+        return self.scope_stack.get(name, False)
 
     def add_identifier_to_scope(self, name: str, coord: Optional[Coord]) -> None:
         """Add a new object, function, or enum member name (i.e. an ID) to the current scope."""
 
-        if self.context.scope_stack.maps[0].get(name, False):
+        if self.scope_stack.maps[0].get(name, False):
             msg = f"{coord}: Non-typedef {name!r} previously declared as typedef in this scope."
             raise CParseError(msg)
-        self.context.scope_stack[name] = False
+        self.scope_stack[name] = False
 
     def add_typedef_name_to_scope(self, name: str, coord: Optional[Coord]) -> None:
         """Add a new typedef name (i.e. a TYPEID) to the current scope."""
 
-        if not self.context.scope_stack.maps[0].get(name, True):
+        if not self.scope_stack.maps[0].get(name, True):
             msg = f"{coord}: Typedef {name!r} previously declared as non-typedef in this scope."
             raise CParseError(msg)
-        self.context.scope_stack[name] = True
+        self.scope_stack[name] = True
 
     # endregion
 
@@ -341,7 +342,7 @@ class CParser(Parser):
                 raise CParseError(msg)
             type_.type = c_ast.IdType(["int"], coord=decl.coord)
         else:
-            # At this point, we know that typename is a list of IdentifierType nodes.
+            # At this point, we know that typename is a list of IdType nodes.
             # Concatenate all the names into a single list.
             type_.type = c_ast.IdType([name for id_ in typename for name in id_.names], coord=typename[0].coord)
         return decl
@@ -380,9 +381,9 @@ class CParser(Parser):
             # Make this look as if it came from "direct_declarator:ID"
             decls_0["decl"] = c_ast.TypeDecl(
                 declname=spec.type[-1].names[0],
-                type=None,
                 quals=None,
                 align=spec.alignment,
+                type=None,
                 coord=spec.type[-1].coord,
             )
             # Remove the "new" type's name from the end of spec.type

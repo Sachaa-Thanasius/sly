@@ -12,11 +12,12 @@ __all__ = ("CContext", "parse", "preprocess_file", "parse_file")
 
 class CContext:
     def __init__(self, parser_type: type[CParser] = CParser) -> None:
-        self.lexer = CLexer(self)
-        self.parser = parser_type(self)
         self.scope_stack: ChainMap[str, bool] = ChainMap()
         self.source = ""
         self._ast: Optional[c_ast.File] = None
+
+        self.lexer = CLexer(self)
+        self.parser = parser_type(self)
 
     @property
     def ast(self) -> c_ast.File:
