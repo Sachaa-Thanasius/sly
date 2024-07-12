@@ -1,7 +1,7 @@
 """Module for parsing C tokens into an AST."""
 # pyright: reportRedeclaration=none, reportUndefinedVariable=none
 
-from typing import TYPE_CHECKING, Any, Optional, TypedDict, TypeVar, Union, overload
+from typing import TYPE_CHECKING, Any, NoReturn, Optional, TypedDict, TypeVar, Union, overload
 
 from sly import Parser
 
@@ -14,10 +14,11 @@ from .utils import Coord
 if TYPE_CHECKING:
     from sly.types import _, subst
 
-
+_DeclarationT = TypeVar("_DeclarationT", bound=Union[c_ast.Typedef, c_ast.Decl, c_ast.Typename])
 _ModifierT = TypeVar("_ModifierT", bound=c_ast.TypeModifier)
 
-__all__ = ("CParseError", "CParser")
+
+__all__ = ("CParser",)
 
 
 # ============================================================================
@@ -78,7 +79,7 @@ class _DeclarationSpecifiers(Datum):
 
 
 # ============================================================================
-# region -------- Post-parsing helpers
+# region -------- Fixers
 # ============================================================================
 
 
@@ -218,7 +219,7 @@ def fix_switch_cases(switch_node: c_ast.Switch) -> c_ast.Switch:
     """
 
     if not isinstance(switch_node, c_ast.Switch):
-        raise TypeError
+        raise TypeError(switch_node)
 
     if not isinstance(switch_node.stmt, c_ast.Compound):
         return switch_node
@@ -257,10 +258,6 @@ def fix_switch_cases(switch_node: c_ast.Switch) -> c_ast.Switch:
 # endregion
 
 
-class CParseError(Exception):
-    """Exception raised when the CParser can't handle an invalid production/token."""
-
-
 class CParser(Parser):
     debugfile = "sly_cparser.out"
 
@@ -281,30 +278,31 @@ class CParser(Parser):
 
     def __init__(self, context: "c_context.CContext") -> None:
         self.context = context
-        self.scope_stack = context.scope_stack
 
     # ============================================================================
     # region ---- Scope helpers
     # ============================================================================
 
     def is_type_in_scope(self, name: str) -> bool:
-        return self.scope_stack.get(name, False)
+        return self.context.scope_stack.get(name, False)
 
     def add_identifier_to_scope(self, name: str, coord: Optional[Coord]) -> None:
         """Add a new object, function, or enum member name (i.e. an ID) to the current scope."""
 
-        if self.scope_stack.maps[0].get(name, False):
-            msg = f"{coord}: Non-typedef {name!r} previously declared as typedef in this scope."
-            raise CParseError(msg)
-        self.scope_stack[name] = False
+        if self.context.scope_stack.maps[0].get(name, False):
+            msg = f"Non-typedef {name!r} previously declared as typedef in this scope."
+            self.context.error(msg, coord)
+
+        self.context.scope_stack[name] = False
 
     def add_typedef_name_to_scope(self, name: str, coord: Optional[Coord]) -> None:
         """Add a new typedef name (i.e. a TYPEID) to the current scope."""
 
-        if not self.scope_stack.maps[0].get(name, True):
-            msg = f"{coord}: Typedef {name!r} previously declared as non-typedef in this scope."
-            raise CParseError(msg)
-        self.scope_stack[name] = True
+        if not self.context.scope_stack.maps[0].get(name, True):
+            msg = f"Typedef {name!r} previously declared as non-typedef in this scope."
+            self.context.error(msg, coord)
+
+        self.context.scope_stack[name] = True
 
     # endregion
 
@@ -312,7 +310,7 @@ class CParser(Parser):
     # region ---- Parsing helpers
     # ============================================================================
 
-    def _fix_decl_name_type(self, decl: Union[c_ast.Typedef, c_ast.Decl, c_ast.Typename], typename: Any) -> Any:
+    def _fix_decl_name_type(self, decl: _DeclarationT, typename: list[c_ast.IdType]) -> _DeclarationT:
         """Fixes a declaration. Modifies decl."""
 
         # Reach the underlying basic type
@@ -329,8 +327,8 @@ class CParser(Parser):
         for tn in typename:
             if not isinstance(tn, c_ast.IdType):
                 if len(typename) > 1:
-                    msg = f"{tn.coord}: Invalid multiple types specified"
-                    raise CParseError(msg)
+                    msg = "Invalid multiple types specified"
+                    self.context.error(msg, tn.coord)
                 else:
                     type_.type = tn
                     return decl
@@ -338,8 +336,9 @@ class CParser(Parser):
         if not typename:
             # Functions default to returning int
             if not isinstance(decl.type, c_ast.FuncDecl):
-                msg = f"{decl.coord}: Missing type in declaration"
-                raise CParseError(msg)
+                msg = "Missing type in declaration"
+                self.context.error(msg, decl.coord)
+
             type_.type = c_ast.IdType(["int"], coord=decl.coord)
         else:
             # At this point, we know that typename is a list of IdType nodes.
@@ -374,9 +373,8 @@ class CParser(Parser):
             # gets grouped into spec.type, leaving decl as None. This can only occur for the first declarator.
             if len(spec.type) < 2 or len(spec.type[-1].names) != 1 or not self.is_type_in_scope(spec.type[-1].names[0]):
                 coord = next((t.coord for t in spec.type if hasattr(t, "coord")), "?")
-
-                msg = f"{coord}: Invalid declaration"
-                raise CParseError(msg)
+                msg = "Invalid declaration"
+                self.context.error(msg, coord)
 
             # Make this look as if it came from "direct_declarator:ID"
             decls_0["decl"] = c_ast.TypeDecl(
@@ -442,8 +440,8 @@ class CParser(Parser):
         """Builds a function definition."""
 
         if "typedef" in spec.storage:
-            msg = f"{decl.coord}: Invalid typedef"
-            raise CParseError(msg)
+            msg = "Invalid typedef"
+            self.context.error(msg, decl.coord)
 
         declaration = self._build_declarations(spec, decls=[{"decl": decl, "init": None}], typedef_namespace=True)[0]
 
@@ -571,7 +569,7 @@ class CParser(Parser):
     @_("PP_HASH")
     def pp_directive(self, p: Any):
         msg = "Directives not supported yet"
-        raise RuntimeError(msg, Coord.from_literal(p, p.PP_HASH))
+        self.context.error(msg, Coord.from_literal(p, p.PP_HASH))
 
     @_("PP_PRAGMA")
     def pppragma_directive(self, p: Any):
@@ -1867,13 +1865,15 @@ class CParser(Parser):
     # endregion
 
     @override
-    def error(self, token: Any):
+    def error(self, token: Any) -> NoReturn:
         if token:
             if lineno := getattr(token, "lineno", 0):
-                msg = f"sly: Syntax error at line {lineno}, token={token.type!r}."
+                msg = f"Syntax error at line {lineno}, token={token.type!r}."
             else:
-                msg = f"sly: Syntax error, token={token.type!r}"
+                msg = f"Syntax error, token={token.type!r}."
+            location = Coord(lineno, token.index, token.end)
         else:
-            msg = "sly: Parse error in input. EOF."
+            msg = "Parse error in input. EOF."
+            location = Coord(-1, -1)
 
-        raise CParseError(msg, token)
+        self.context.error(msg, location, token)

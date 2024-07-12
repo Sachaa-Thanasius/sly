@@ -67,12 +67,12 @@ __all__ = (
     "Typename",
     "Union",
     # Utilities
+    "compare",
     "iter_child_nodes",
     "walk",
     "NodeVisitor",
     "dump",
     "unparse",
-    "compare_asts",
 )
 
 # ============================================================================
@@ -127,7 +127,7 @@ else:
             if not isinstance(other, type(self)):
                 return NotImplemented
 
-            return compare_asts(self, other)
+            return compare(self, other)
 
 
 class File(AST):
@@ -156,7 +156,7 @@ class EllipsisParam(AST):
 
 
 class Compound(AST):
-    block_items: list[AST]
+    block_items: Optional[list[AST]]
 
 
 # -------- Flow control
@@ -208,8 +208,8 @@ class Default(AST):
 
 
 class If(AST):
-    cond: AST
-    iftrue: AST
+    cond: Optional[AST]
+    iftrue: Optional[AST]
     iffalse: Optional[AST]
 
 
@@ -305,7 +305,7 @@ class TypeDecl(AST):
 # ---- Type modifiers
 class ArrayDecl(AST):
     type: TUnion[TypeDecl, "PtrDecl", "ArrayDecl"]
-    dim: Optional[AST]
+    dim: Optional[TUnion[Constant, Id]]
     dim_quals: list[str]
 
 
@@ -413,7 +413,7 @@ class Typename(AST):
 # ============================================================================
 
 
-def compare_asts(first_node: TUnion[AST, MutableSequence[AST]], second_node: TUnion[AST, MutableSequence[AST]]) -> bool:
+def compare(first_node: TUnion[AST, MutableSequence[AST]], second_node: TUnion[AST, MutableSequence[AST]]) -> bool:
     """Compare two AST nodes for equality, to see if they have the same field structure with the same values.
 
     This only takes into account fields present in a node's _fields list while ignoring "coord".
@@ -502,7 +502,7 @@ class NodeVisitor:
 
         return result
 
-    def generic_visit(self, node: AST) -> Generator[AST, Any, None]:
+    def generic_visit(self, node: AST) -> Generator[AST, Any, Any]:
         """Called if no explicit visitor function exists for a node."""
 
         yield from iter_child_nodes(node)
@@ -559,7 +559,7 @@ class _NodePrettyPrinter(NodeVisitor):
         self.buffer.truncate()
 
     @contextlib.contextmanager
-    def add_indent_level(self, val: int = 1) -> Generator[None, Any, None]:
+    def add_indent_level(self, val: int = 1) -> Generator[None]:
         self.indent_level += val
         try:
             yield
@@ -567,7 +567,7 @@ class _NodePrettyPrinter(NodeVisitor):
             self.indent_level -= val
 
     @contextlib.contextmanager
-    def delimit(self, start: str, end: str) -> Generator[None, Any, None]:
+    def delimit(self, start: str, end: str) -> Generator[None]:
         self.write(start)
         try:
             yield
@@ -690,12 +690,12 @@ class _Unparser(NodeVisitor):
 
     def __init__(self, *, reduce_parentheses: bool = False) -> None:
         self.reduce_parentheses = reduce_parentheses
-        self.buffer = StringIO()
+
         self.indent_level = 0
 
     @property
     def indent(self) -> str:
-        return "    " * self.indent_level
+        return " " * self.indent_level
 
     @contextlib.contextmanager
     def add_indent_level(self, val: int = 1) -> Generator[None, Any, None]:
@@ -711,10 +711,9 @@ class _Unparser(NodeVisitor):
 
     @override
     def generic_visit(self, node: Optional[AST]) -> Generator[AST, Any, str]:
-        if node is None:
-            return ""
-        else:
+        if node is not None:
             yield from super().generic_visit(node)
+        return ""
 
     def _visit_expression(self, node: AST) -> Generator[AST, str, str]:
         expr = yield node

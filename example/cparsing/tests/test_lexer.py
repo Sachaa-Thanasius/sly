@@ -328,7 +328,7 @@ def test_preprocessor_line(clex: CLexer):
     assert t2.type == "ID"
     assert t2.value == "id"
     assert t2.lineno == 66
-    assert clex.filename == r"kwas\df.h"
+    assert clex.context.filename == r"kwas\df.h"
 
     t = next(tokenizer)
     t = next(tokenizer)
@@ -337,19 +337,19 @@ def test_preprocessor_line(clex: CLexer):
     assert t.type == "ID"
     assert t.value == "armo"
     assert t.lineno == 9
-    assert clex.filename == r"kwas\df.h"
+    assert clex.context.filename == r"kwas\df.h"
 
     t4 = next(tokenizer)
     assert t4.type == "ID"
     assert t4.value == "tok1"
     assert t4.lineno == 10
-    assert clex.filename == r"..\~..\test.h"
+    assert clex.context.filename == r"..\~..\test.h"
 
     t5 = next(tokenizer)
     assert t5.type == "ID"
     assert t5.value == "tok2"
     assert t5.lineno == 99999
-    assert clex.filename == r"include/me.h"
+    assert clex.context.filename == r"include/me.h"
 
 
 def test_preprocessor_line_funny(clex: CLexer):
@@ -364,7 +364,7 @@ def test_preprocessor_line_funny(clex: CLexer):
     t1 = next(tokenizer)
     assert t1.type == "INT_CONST_DEC"
     assert t1.lineno == 10
-    assert clex.filename == r"..\6\joe.h"
+    assert clex.context.filename == r"..\6\joe.h"
 
 
 def test_preprocessor_pragma(clex: CLexer):

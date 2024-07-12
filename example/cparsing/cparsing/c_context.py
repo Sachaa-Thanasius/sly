@@ -1,23 +1,32 @@
 import os
 from collections import ChainMap
 from collections.abc import Sequence
-from typing import Optional, Union
+from typing import NoReturn, Optional, Union
 
 from . import c_ast
 from .c_lexer import CLexer
 from .c_parser import CParser
+from .utils import Coord
 
 __all__ = ("CContext", "parse", "preprocess_file", "parse_file")
 
 
+class CParsingError(Exception):
+    def __init__(self, message: str, coord: Coord, *args: object) -> None:
+        super().__init__(f"{coord}: {message}", *args)
+        self.message = message
+        self.coord = coord
+
+
 class CContext:
-    def __init__(self, parser_type: type[CParser] = CParser) -> None:
+    def __init__(self, filename: str = "<unknown>", parser_type: type[CParser] = CParser) -> None:
         self.scope_stack: ChainMap[str, bool] = ChainMap()
         self.source = ""
-        self._ast: Optional[c_ast.File] = None
-
+        self.filename = filename
         self.lexer = CLexer(self)
         self.parser = parser_type(self)
+
+        self._ast: Optional[c_ast.File] = None
 
     @property
     def ast(self) -> c_ast.File:
@@ -30,9 +39,13 @@ class CContext:
         self.source = source
         self._ast = self.parser.parse(self.lexer.tokenize(source))
 
+    def error(self, message: str, location: Coord, *args: object) -> NoReturn:
+        location.filename = self.filename
+        raise CParsingError(message, location, *args)
+
 
 def parse(source: str, filename: str = "", parser_type: type[CParser] = CParser) -> "c_ast.File":
-    context = CContext(parser_type)
+    context = CContext(filename, parser_type)
     context.parse(source)
     return context.ast
 
@@ -58,7 +71,7 @@ def preprocess_file(filename: str, cpp_path: str = "cpp", cpp_args: Sequence[str
     Raises
     ------
     RuntimeError
-        If the invocation of cpp failed. This will display the original error.
+        If the invocation of cpp failed. This should wrap the actual error.
     """
 
     import subprocess
@@ -84,10 +97,11 @@ def parse_file(
     cpp_args: Sequence[str] = (),
     parser_type: type[CParser] = CParser,
 ) -> "c_ast.File":
+    filename = os.fspath(file)
     if use_cpp:
-        source = preprocess_file(os.fspath(file), cpp_path, cpp_args)
+        source = preprocess_file(filename, cpp_path, cpp_args)
     else:
         with open(file, encoding=encoding) as fp:
             source = fp.read()
 
-    return parse(source, parser_type=parser_type)
+    return parse(source, filename, parser_type=parser_type)

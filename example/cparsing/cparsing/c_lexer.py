@@ -9,12 +9,13 @@ from sly.lex import Token
 
 from . import c_context
 from ._typing_compat import override
+from .utils import Coord
 
 if TYPE_CHECKING:
     from sly.types import _
 
 
-__all__ = ("CLexError", "CLexer")
+__all__ = ("CLexer",)
 
 
 # ============================================================================
@@ -88,15 +89,6 @@ def _find_token_column(text: str, t: Token) -> int:
     if last_cr < 0:
         last_cr = 0
     return (t.index - last_cr) + 1
-
-
-class CLexError(Exception):
-    """Exception raised when the CLexer can't handle an invalid token."""
-
-    def __init__(self, message: str, text: str, error_coords: tuple[int, int]):
-        super().__init__(message)
-        self.text = text
-        self.error_coords = error_coords
 
 
 # ============================================================================
@@ -177,7 +169,6 @@ class CLexer(Lexer):
     ignore = " \t"
 
     # ---- The rest of the tokens
-
     @_(r"[ \t]*\#")
     def PP_HASH(self, t: Token) -> Optional[Token]:
         if _line_pattern.match(self.text, pos=t.end):
@@ -231,7 +222,7 @@ class CLexer(Lexer):
 
     @_(r"""('""" + _cconst_char + """[^'\n]+')|('')|('""" + _bad_escape + r"""[^'\n]*')""")
     def BAD_CHAR_CONST(self, t: Token) -> NoReturn:
-        self.error(t, f"Invalid char constant {t.value}")
+        self.error(t, f"Invalid char constant {t.value!r}")
 
     # string literals (K&R2: A.2.6)
     WSTRING_LITERAL = "L" + STRING_LITERAL
@@ -241,7 +232,7 @@ class CLexer(Lexer):
 
     @_('"' + _string_char + "*" + _bad_escape + _string_char + '*"')
     def BAD_STRING_LITERAL(self, t: Token) -> NoReturn:
-        self.error(t, "String contains invalid escape code")
+        self.error(t, "String contains invalid escape code!r")
 
     # Increment/decrement
     PLUSPLUS = r"\+\+"
@@ -366,12 +357,11 @@ class CLexer(Lexer):
     @override
     def error(self, t: Token, msg: Optional[str] = None) -> NoReturn:
         column = _find_token_column(self.text, t)
-        msg = msg or f"(Line, Column) {self.lineno}, {column}: Bad character {t.value[0]!r}"
-        raise CLexError(msg, t.value, (self.lineno, column))
+        msg = msg or f"Bad character {t.value[0]!r}"
+        self.context.error(f"Bad character {t.value[0]!r}", Coord(self.lineno, column))
 
     def __init__(self, context: "c_context.CContext") -> None:
         self.context = context
-        self.filename: str = ""
         self.pp_line: Optional[str] = None
         self.pp_filename: Optional[str] = None
 
@@ -416,7 +406,7 @@ class PreprocessorLineLexer(Lexer):
             self.lineno = int(self.pp_line)
 
             if self.pp_filename is not None:
-                self.filename = self.pp_filename
+                self.context.filename = self.pp_filename
 
         self.pop_state()
 
@@ -424,10 +414,10 @@ class PreprocessorLineLexer(Lexer):
     def error(self, t: Token, msg: Optional[str] = None) -> NoReturn:
         column = _find_token_column(self.text, t)
         msg = msg or f"invalid #line directive {t.value}"
-        raise CLexError(msg, t.value, (self.lineno, column))
+        self.context.error(msg, Coord(self.lineno, column))
 
-    def __init__(self):
-        self.filename: str = ""
+    def __init__(self, context: "c_context.CContext") -> None:
+        self.context = context
         self.pp_line: Optional[str] = None
         self.pp_filename: Optional[str] = None
 
@@ -455,7 +445,10 @@ class PreprocessorPragmaLexer(Lexer):
     def error(self, t: Token, msg: Optional[str] = None) -> NoReturn:
         column = _find_token_column(self.text, t)
         msg = msg or f"invalid #pragma directive {t.value}"
-        raise CLexError(msg, t.value, (self.lineno, column))
+        self.context.error(msg, Coord(self.lineno, column), t.value)
+
+    def __init__(self, context: "c_context.CContext") -> None:
+        self.context = context
 
 
 # endregion

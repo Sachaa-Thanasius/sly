@@ -27,7 +27,7 @@ def test_weakref_works_on_nodes():
 
 
 def test_weakref_works_on_coord():
-    coord = Coord("a", 2, *(0, 0))
+    coord = Coord(2, *(0, 0), filename="a")
     wr = weakref.ref(coord)
     cref = wr()
 
@@ -126,7 +126,7 @@ def test_true_ast_comparison():
 
     b1 = c_ast.BinaryOp(op="+", left=c1, right=c2)
     b2 = c_ast.BinaryOp(op="+", left=c1, right=c2)
-    assert c_ast.compare_asts(b1, b2)
+    assert c_ast.compare(b1, b2)
     assert b1 == b2
 
 
@@ -137,5 +137,5 @@ def test_false_ast_comparison():
     b1 = c_ast.BinaryOp(op="+", left=c1, right=c2)
     b2 = c_ast.BinaryOp(op="+", left=c1, right=c1)
 
-    assert not c_ast.compare_asts(b1, b2)
+    assert not c_ast.compare(b1, b2)
     assert b1 != b2

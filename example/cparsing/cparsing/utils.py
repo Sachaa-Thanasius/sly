@@ -1,40 +1,37 @@
 """Some utilities for internal use."""
 
-from typing import Any, Optional
-
-from sly import Parser
+from typing import TYPE_CHECKING, Any, Optional
 
 from ._cluegen import Datum
 from ._typing_compat import Self, override
+
+if TYPE_CHECKING:
+    from .c_parser import CParser
 
 __all__ = ("Coord",)
 
 
 class Coord(Datum):
-    filename: str
     line_start: int
     col_start: int
     line_end: Optional[int] = None
     col_end: Optional[int] = None
+    filename: str = "<unknown>"
 
     @classmethod
-    def from_literal(cls, p: Any, literal: str, filename: str = "") -> Self:
-        return cls(filename, p.lineno, p.index, None, None)
+    def from_literal(cls, p: Any, literal: str) -> Self:
+        return cls(p.lineno, p.index, None, None)
 
     @classmethod
-    def from_prod(cls, parser: Parser, p: Any, filename: str = "") -> Self:
+    def from_prod(cls, parser: "CParser", p: Any) -> Self:
         lineno = parser.line_position(p)
+        assert lineno
+
         col_start, col_end = parser.index_position(p)
-        return cls(filename, lineno, col_start, None, col_end)
+        assert col_start
+        assert col_end
 
-    @classmethod
-    def combine_coords(cls, coord1: Self, coord2: Self) -> Self:
-        line_start = coord1.line_start
-        line_end = coord2.line_end or coord2.line_start
-        col_start = coord1.col_start
-        col_end = coord2.col_start or coord2.col_end
-
-        return cls("", line_start, line_end, col_start, col_end)
+        return cls(lineno, col_start, None, col_end)
 
     @override
     def __str__(self) -> str:
