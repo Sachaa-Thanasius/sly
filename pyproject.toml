@@ -132,7 +132,7 @@ unfixable = [
     "ERA", # Prevent unlikely erroneous deletion.
 ]
 
-typing-modules = ["src/sly/_misc", "example/cparsing/cparsing/_typing_compat"]
+typing-modules = ["src/sly/_misc"]
 
 [tool.ruff.lint.pyupgrade]
 keep-runtime-typing = true
