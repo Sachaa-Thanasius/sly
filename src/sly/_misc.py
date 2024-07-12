@@ -4,14 +4,8 @@ import sys
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Final, TypeVar
 
-if sys.version_info >= (3, 9, 2):  # noqa: UP036 # Users might still be on 3.9.0.
+if sys.version_info >= (3, 9, 2):  # noqa: UP036 # 3.9.0 and 3.9.1 exist.
     from types import GenericAlias as _GenericAlias
-elif TYPE_CHECKING:
-
-    class _GenericAlias:
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            pass
-
 else:  # pragma: no cover
     from typing import _GenericAlias
 

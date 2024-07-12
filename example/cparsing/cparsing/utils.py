@@ -35,4 +35,7 @@ class Coord(Datum):
 
     @override
     def __str__(self) -> str:
-        return f"{self.filename}:{self.line_start}:{(self.col_start, self.col_end)}"
+        fmt = f"filename={self.filename} | start=({self.line_start}, {self.col_start})"
+        if self.line_end is not None or self.col_end is not None:
+            fmt += f" | end=({self.line_end}, {self.col_end})"
+        return fmt

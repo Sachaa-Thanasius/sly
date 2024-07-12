@@ -2024,7 +2024,7 @@ def _generate_choice_rules(symbols: list[str]) -> tuple[str, list[_RawGrammarRul
 
 
 class ParserMetaDict(dict[str, Any]):
-    """Dictionary that allows decorated grammar rule functions to be overloaded."""
+    """Special dictionary that allows decorated grammar rule functions to be overloaded."""
 
     @override
     def __setitem__(self, key: str, value: Any) -> None:

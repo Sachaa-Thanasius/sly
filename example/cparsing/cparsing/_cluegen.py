@@ -28,14 +28,12 @@ from typing import Any, ClassVar, Final, Protocol, TypeVar, final, get_origin
 
 from ._typing_compat import Self, dataclass_transform, override
 
-_DBT = TypeVar("_DBT", bound="DatumBase")
+_DBT_contra = TypeVar("_DBT_contra", bound="DatumBase", contravariant=True)
 
 
-class _ClueGenDescriptor(Protocol[_DBT]):
-    owner: type[_DBT]
-
-    def __get__(self, instance: _DBT, owner: type[_DBT]) -> Any: ...
-    def __set_name__(self, owner: type[_DBT], name: str) -> None: ...
+class _ClueGenDescriptor(Protocol[_DBT_contra]):
+    def __get__(self, instance: _DBT_contra, owner: type[_DBT_contra]) -> Any: ...
+    def __set_name__(self, owner: type[_DBT_contra], name: str) -> None: ...
 
 
 __all__ = ("all_clues", "all_defaults", "cluegen", "DatumBase", "Datum")
@@ -54,10 +52,10 @@ CLUEGEN_NOTHING: Final[Any] = _Nothing()
 """Internal sentinel that can act as a placeholder for a mutable default value in a signature."""
 
 
-def cluegen(func: Callable[[type[_DBT]], str]) -> _ClueGenDescriptor[_DBT]:
+def cluegen(func: Callable[[type[_DBT_contra]], str]) -> _ClueGenDescriptor[_DBT_contra]:
     """Create a custom ClueGen descriptor that will, as needed, execute and assign the code resulting from `func`."""
 
-    def __get__(self: _ClueGenDescriptor[_DBT], instance: _DBT, owner: type[_DBT]) -> Any:
+    def __get__(self: _ClueGenDescriptor[_DBT_contra], instance: _DBT_contra, owner: type[_DBT_contra]) -> Any:
         try:
             owner_mod = sys.modules[owner.__module__]
         except KeyError:
@@ -74,7 +72,7 @@ def cluegen(func: Callable[[type[_DBT]], str]) -> _ClueGenDescriptor[_DBT]:
         setattr(owner, func.__name__, method)
         return method.__get__(instance, owner)
 
-    def __set_name__(self: _ClueGenDescriptor[_DBT], owner: type[_DBT], name: str) -> None:
+    def __set_name__(self: _ClueGenDescriptor[_DBT_contra], owner: type[_DBT_contra], name: str) -> None:
         try:
             owner.__dict__["_methods"]
         except KeyError:
@@ -87,7 +85,7 @@ def cluegen(func: Callable[[type[_DBT]], str]) -> _ClueGenDescriptor[_DBT]:
 
 
 def all_clues(cls: type) -> dict[str, Any]:
-    """Get all annotations from a type. This excludes ClassVars and traverses the type's mro."""
+    """Get all annotations from a type. This excludes ClassVars while traversing the type's mro."""
 
     clues = reduce(lambda x, y: getattr(y, "__annotations__", {}) | x, cls.__mro__, {})
     return {name: ann for name, ann in clues.items() if (get_origin(ann) or ann) is not ClassVar}
@@ -145,7 +143,12 @@ class DatumBase:
 @dataclass_transform()
 class Datum(DatumBase):
     """Base data structure that automatically creates `__init__`, `__repr__`, `__eq__`, and `__match_args__` based on
-    annotations.
+    class annotations.
+
+    Notes
+    -----
+    This is the class decorated with `dataclass_transform()` instead of `DatumBase` because the latter allows creation
+    schemes that `dataclass_transform()` isn't specified to account for.
     """
 
     __slots__ = ()

@@ -37,7 +37,7 @@ def test_weakref_works_on_coord():
 
 
 class ConstantVisitor(c_ast.NodeVisitor):
-    def __init__(self):
+    def __init__(self) -> None:
         self.values: list[str] = []
 
     def visit_Constant(self, node: c_ast.Constant) -> None:

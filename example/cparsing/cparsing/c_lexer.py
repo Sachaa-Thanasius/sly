@@ -1,5 +1,5 @@
+# pyright: reportUndefinedVariable=none, reportIndexIssue=none, reportConstantRedefinition=none
 """Module for lexing C code."""
-# pyright: reportUndefinedVariable=none, reportIndexIssue=none
 
 import re
 from typing import TYPE_CHECKING, NoReturn, Optional
@@ -19,8 +19,15 @@ __all__ = ("CLexer",)
 
 
 # ============================================================================
-# region -------- Token regex helpers
+# region -------- Helpers
 # ============================================================================
+
+
+def _find_token_column(text: str, t: Token) -> int:
+    last_cr = text.rfind("\n", 0, t.index)
+    if last_cr < 0:
+        last_cr = 0
+    return (t.index - last_cr) + 1
 
 
 _line_pattern = re.compile(r"([ \t]*line\W)|([ \t]*\d+)")
@@ -82,13 +89,6 @@ _hex_fractional_constant = "(((" + _hex_digits + r""")?\.""" + _hex_digits + ")|
 
 
 # endregion
-
-
-def _find_token_column(text: str, t: Token) -> int:
-    last_cr = text.rfind("\n", 0, t.index)
-    if last_cr < 0:
-        last_cr = 0
-    return (t.index - last_cr) + 1
 
 
 # ============================================================================
@@ -285,7 +285,7 @@ class CLexer(Lexer):
 
     # Identifiers and keywords
     # valid C identifiers (K&R2: A.2.3), plus "$" (supported by some compilers)
-    ID = r"[a-zA-Z_$][0-9a-zA-Z_$]*" # type: ignore
+    ID = r"[a-zA-Z_$][0-9a-zA-Z_$]*" # pyright: ignore [reportAssignmentType]
 
     ID["auto"]              = AUTO
     ID["break"]             = BREAK

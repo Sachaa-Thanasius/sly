@@ -50,100 +50,128 @@ def test_initial_semi(test_input: str, expected: c_ast.AST):
     assert tree == expected
 
 
-@pytest.mark.xfail()
-def test_coords():
-    """Tests the "coordinates" of parsed elements - file name, line and column numbers, with modification
-    inserted by #line directives.
-    """
-
-    from cparsing.utils import Coord
-
-    f0 = parse("int a;")
-    assert f0.ext[0].coord == Coord(1, *(5, 0), filename="<unknown>")
-
-    t1 = """\
-    int a;
-    int b;\n\n
-    int c;
-    """
-    f1 = parse(t1, filename="test.c")
-    assert f1.ext[0].coord == Coord(2, *(13, 0), filename="test.c")
-    assert f1.ext[1].coord == Coord(3, *(13, 0), filename="test.c")
-    assert f1.ext[2].coord == Coord(6, *(13, 0), filename="test.c")
-
-    t1_1 = """\
-    int main() {
-        k = p;
-        printf("%d", b);
-        return 0;
-    }"""
-    f1_1 = parse(t1_1, filename="test.c")
-    assert f1_1.ext[0].body.block_items[0].coord == Coord(3, *(13, 0), filename="test.c")  # type: ignore
-    assert f1_1.ext[0].body.block_items[1].coord == Coord(4, *(13, 0), filename="test.c")  # type: ignore
-
-    t1_2 = """\
-    int main () {
-        int p = (int) k;
-    }"""
-    f1_2 = parse(t1_2, filename="test.c")
-    # make sure that the Cast has a coord (issue 23)
-    assert f1_2.ext[0].body.block_items[0].init.coord == Coord(3, *(21, 0), filename="test.c")  # type: ignore
-
-    t2 = """\
-    #line 99
-    int c;
-    """
-    f2 = parse(t2)
-    assert f2.ext[0].coord == Coord(99, *(13, 0), filename="<unknown>")
-    t3 = """\
-    int dsf;
-    char p;
-    #line 3000 "in.h"
-    char d;
-    """
-    f3 = parse(t3, filename="test.c")
-    assert f3.ext[0].coord == Coord(2, *(13, 0), filename="test.c")
-    assert f3.ext[1].coord == Coord(3, *(14, 0), filename="test.c")
-    assert f3.ext[2].coord == Coord(3000, *(14, 0), filename="in.h")
-
-    t4 = """\
-    #line 20 "restore.h"
-    int maydler(char);
-
-    #line 30 "includes/daween.ph"
-    long j, k;
-
-    #line 50000
-    char* ro;
-    """
-    f4 = parse(t4, filename="myb.c")
-    assert f4.ext[0].coord == Coord(20, *(13, 0), filename="restore.h")
-    assert f4.ext[1].coord == Coord(30, *(14, 0), filename="includes/daween.ph")
-    assert f4.ext[2].coord == Coord(30, *(17, 0), filename="includes/daween.ph")
-    assert f4.ext[3].coord == Coord(50000, *(13, 0), filename="includes/daween.ph")
-
-    t5 = """\
-    int
-    #line 99
-    c;
-    """
-    f5 = parse(t5)
-    assert f5.ext[0].coord == Coord(99, *(9, 0), filename="<")
-
-    # coord for ellipsis
-    t6 = """\
-    int foo(int j,
-            ...) {
-    }"""
-    f6 = parse(t6)
-    coord = f6.ext[0].decl.type.args.params[1].coord  # type: ignore
-    assert coord == Coord(3, *(17, 0), filename="<unknown>")
+# ========
+# region -- Coordinates
+# ========
+#
+# Test the "coordinates" of parsed elements - file name, line and column numbers, with modification inserted by
+# #line directives.
 
 
 @pytest.mark.xfail(reason="TODO")
-def test_forloop_coord() -> None:
-    from cparsing.utils import Coord
+@pytest.mark.parametrize(("test_input", "expected_coord"), [("int a;", Coord(1, *(5, 0), filename="<unknown>"))])
+def test_coords_without_filename(test_input: str, expected_coord: Coord):
+    tree = parse(test_input)
+    assert tree.ext[0].coord == expected_coord
 
+
+@pytest.mark.xfail(reason="TODO")
+def test_coords_with_filename_1():
+    test_input = """\
+int a;
+int b;\n\n
+int c;
+"""
+    filename = "test.c"
+
+    tree = parse(test_input, filename=filename)
+
+    assert tree.ext[0].coord == Coord(2, *(13, 0), filename=filename)
+    assert tree.ext[1].coord == Coord(3, *(13, 0), filename=filename)
+    assert tree.ext[2].coord == Coord(6, *(13, 0), filename=filename)
+
+
+@pytest.mark.xfail(reason="TODO")
+def test_coords_with_filename_2():
+    test_input = """\
+int main() {
+    k = p;
+    printf("%d", b);
+    return 0;
+}"""
+    filename = "test.c"
+
+    tree = parse(test_input, filename=filename)
+
+    assert tree.ext[0].body.block_items[0].coord == Coord(3, *(13, 0), filename="test.c")  # type: ignore
+    assert tree.ext[0].body.block_items[1].coord == Coord(4, *(13, 0), filename="test.c")  # type: ignore
+
+
+@pytest.mark.xfail(reason="TODO")
+def test_coords_on_Cast():
+    """Issue 23: Make sure that the Cast has a coord."""
+
+    test_input = """\
+    int main () {
+        int p = (int) k;
+    }"""
+    filename = "test.c"
+
+    tree = parse(test_input, filename=filename)
+
+    assert tree.ext[0].body.block_items[0].init.coord == Coord(3, *(21, 0), filename=filename)  # type: ignore
+
+
+@pytest.mark.xfail(reason="TODO")
+@pytest.mark.parametrize(
+    ("test_input", "filename", "expected_coords"),
+    [
+        (
+            "#line 99\nint c;",
+            "<unknown>",
+            [Coord(99, *(13, 0))],
+        ),
+        (
+            'int dsf;\nchar p;\n#line 3000 "in.h"\nchar d;',
+            "test.c",
+            [
+                Coord(2, *(13, 0), filename="test.c"),
+                Coord(3, *(14, 0), filename="test.c"),
+                Coord(3000, *(14, 0), filename="in.h"),
+            ],
+        ),
+        (
+            """\
+#line 20 "restore.h"
+int maydler(char);
+
+#line 30 "includes/daween.ph"
+long j, k;
+
+#line 50000
+char* ro;
+""",
+            "myb.c",
+            [
+                Coord(20, *(13, 0), filename="restore.h"),
+                Coord(30, *(14, 0), filename="includes/daween.ph"),
+                Coord(30, *(17, 0), filename="includes/daween.ph"),
+                Coord(50000, *(13, 0), filename="includes/daween.ph"),
+            ],
+        ),
+        ("int\n#line 99\nc;", "<unknown>", [Coord(99, *(9, 0))]),
+    ],
+)
+def test_coords_with_line_directive(test_input: str, filename: str, expected_coords: list[Coord]):
+    tree = parse(test_input, filename)
+
+    for index, coord in enumerate(expected_coords):
+        assert tree.ext[index].coord == coord
+
+
+@pytest.mark.xfail(reason="TODO")
+def test_coord_for_ellipsis():
+    test_input = """\
+    int foo(int j,
+            ...) {
+    }"""
+    tree = parse(test_input)
+    coord = tree.ext[0].decl.type.args.params[1].coord  # type: ignore
+    assert coord == Coord(3, *(17, 0))
+
+
+@pytest.mark.xfail(reason="TODO")
+def test_coords_forloop() -> None:
     test_input = """\
 void foo() {
     for(int z=0; z<4;
@@ -152,9 +180,10 @@ void foo() {
 """
 
     tree = parse(test_input, filename="f.c")
-    for_loop = tree.ext[0].body.block_items[0]  # type: ignore
 
+    for_loop = tree.ext[0].body.block_items[0]  # type: ignore
     assert isinstance(for_loop, c_ast.For)
+
     assert for_loop.init
     assert for_loop.init.coord == Coord(2, 13, filename="f.c")
 
@@ -163,6 +192,9 @@ void foo() {
 
     assert for_loop.next
     assert for_loop.next.coord == Coord(3, 17, filename="f.c")
+
+
+# endregion
 
 
 @pytest.mark.parametrize(
@@ -1279,15 +1311,15 @@ void foo() {
 @pytest.mark.xfail(reason="TODO")
 def test_parenthesized_compounds() -> None:
     test_input = r"""
-    void foo() {
-        int a;
-        ({});
-        ({ 1; });
-        ({ 1; 2; });
-        int b = ({ 1; });
-        int c, d = ({ int x = 1; x + 2; });
-        a = ({ int x = 1; 2 * x; });
-    }"""
+void foo() {
+    int a;
+    ({});
+    ({ 1; });
+    ({ 1; 2; });
+    int b = ({ 1; });
+    int c, d = ({ int x = 1; x + 2; });
+    a = ({ int x = 1; 2 * x; });
+}"""
 
     expected = [
         c_ast.Decl("a", c_ast.TypeDecl("a", type=c_ast.IdType(["int"]))),
@@ -2078,12 +2110,10 @@ def test_struct_empty(test_input: str, expected: c_ast.AST):
     """Tests that parsing an empty struct works.
 
     Empty structs do NOT follow C99 (See 6.2.5-20 of the C99 standard).
-    This is nevertheless supported by some compilers (clang, gcc),
-    especially when using FORTIFY code.
+    This is nevertheless supported by some compilers (clang, gcc), especially when using FORTIFY code.
     Some compilers (visual) will fail to compile with an error.
     """
 
-    # an empty struct. This is NOT C99 compliant
     tree = parse(test_input)
     empty_struct = tree.ext[0]
     assert empty_struct == expected
@@ -3282,7 +3312,7 @@ def test_whole_file_with_stdio():
 
 
 # ========
-# region ---- Issues related to typedef-name problem.
+# region ---- Issues related to typedef-name problem
 # ========
 
 

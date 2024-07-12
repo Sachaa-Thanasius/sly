@@ -82,14 +82,6 @@ class LexerBuildError(Exception):
     """Exception raised if there's some sort of problem building the lexer."""
 
 
-class LexerStateChange(Exception):
-    """Exception raised to force a lexing state change."""
-
-    def __init__(self, newstate: type["Lexer"], tok: Optional["Token"] = None):
-        self.newstate = newstate
-        self.tok = tok
-
-
 # endregion
 
 
@@ -293,7 +285,7 @@ class Lexer(metaclass=LexerMeta):
 
     def __init__(self) -> None:
         # ---- Public interface
-        self.text: str = MISSING
+        self.text: str = ""
         self.index: int = -1
         self.lineno: int = -1
 

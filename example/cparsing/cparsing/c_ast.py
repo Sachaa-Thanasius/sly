@@ -1,5 +1,5 @@
-"""AST nodes and tools."""
 # ruff: noqa: A002
+"""AST nodes and tools."""
 
 import contextlib
 from collections import deque
@@ -667,14 +667,10 @@ _SimpleNode: TypeAlias = TUnion[Constant, Id, ArrayRef, StructRef, FuncCall]
 
 
 class _Unparser(NodeVisitor):
-    # TODO: Consider either writing to an IO buffer here or writing to a list in _NodePrettyPrinter for consistency
-    # in implementation.
+    # TODO: Consider either writing to an IO buffer here for consistency in implementation with _NodePrettyPrinter.
 
     # fmt: off
-    # Precedence map of binary operators:
     precedence_map: ClassVar[dict[str, int]] = {
-        # Should be in sync with c_parser.CParser.precedence
-        # Higher numbers are stronger binding
         "||": 0,
         "&&": 1,
         "|":  2,
@@ -686,6 +682,12 @@ class _Unparser(NodeVisitor):
         "+":  8, "-":  8,
         "*":  9, "/":  9, "%": 9,
     }
+    """Precedence map of binary operators.
+
+    Notes
+    -----
+    Should be in sync with `c_parser.CParser.precedence`. Higher numbers mean stronger binding.
+    """
     # fmt: on
 
     def __init__(self, *, reduce_parentheses: bool = False) -> None:

@@ -1,6 +1,7 @@
-"""Module for parsing C tokens into an AST."""
 # pyright: reportRedeclaration=none, reportUndefinedVariable=none
+"""Module for parsing C tokens into an AST."""
 
+from collections.abc import Generator
 from typing import TYPE_CHECKING, Any, NoReturn, Optional, TypedDict, TypeVar, Union, overload
 
 from sly import Parser
@@ -79,7 +80,7 @@ class _DeclarationSpecifiers(Datum):
 
 
 # ============================================================================
-# region -------- Fixers
+# region -------- AST fixers
 # ============================================================================
 
 
@@ -115,9 +116,8 @@ def _fix_atomic_specifiers_once(decl: Any) -> tuple[Any, bool]:
 def fix_atomic_specifiers(decl: Any) -> Any:
     """Atomic specifiers like _Atomic(type) are unusually structured, conferring a qualifier upon the contained type.
 
-    This function fixes a decl with atomic specifiers to have a sane AST
-    structure, by removing spurious Typename->TypeDecl pairs and attaching
-    the _Atomic qualifier in the right place.
+    This function fixes a decl with atomic specifiers to have a sane AST structure, by removing spurious
+    Typename->TypeDecl pairs and attaching the _Atomic qualifier in the right place.
     """
 
     # There can be multiple levels of _Atomic in a decl; fix them until a fixed point is reached.
@@ -143,8 +143,8 @@ def fix_atomic_specifiers(decl: Any) -> Any:
 
 
 def _extract_nested_case(case_node: Union[c_ast.Case, c_ast.Default], stmts_list: list[Any]) -> None:
-    """Recursively extract consecutive Case statements that are made nested
-    by the parser and add them to the stmts_list.
+    """Recursively extract consecutive Case statements that are made nested by the parser and add them to
+    `stmts_list`.
     """
 
     if isinstance(case_node.stmts[0], (c_ast.Case, c_ast.Default)):
@@ -307,7 +307,7 @@ class CParser(Parser):
     # endregion
 
     # ============================================================================
-    # region ---- Parsing helpers
+    # region ---- AST helpers
     # ============================================================================
 
     def _fix_decl_name_type(self, decl: _DeclarationT, typename: list[c_ast.IdType]) -> _DeclarationT:
@@ -352,7 +352,7 @@ class CParser(Parser):
         decls: list[_StructDeclaratorDict],
         *,
         typedef_namespace: bool = False,
-    ) -> Any:
+    ) -> list[c_ast.Decl]:
         """Builds a list of declarations all sharing the given specifiers.
 
         If typedef_namespace is true, each declared name is added to the "typedef namespace", which also includes
@@ -646,21 +646,18 @@ class CParser(Parser):
 
         Notes
         -----
-        A pragma is generally considered a decorator rather than an actual
-        statement. Still, for the purposes of analyzing an abstract syntax tree of
-        C code, pragma's should not be ignored and were previously treated as a
-        statement. This presents a problem for constructs that take a statement
-        such as labeled_statements, selection_statements, and
-        iteration_statements, causing a misleading structure in the AST. For
-        example, consider the following C code.
+        A pragma is generally considered a decorator rather than an actual statement. Still, for the purposes of
+        analyzing an abstract syntax tree of C code, pragma's should not be ignored and were previously treated as a
+        statement. This presents a problem for constructs that take a statement such as labeled_statements,
+        selection_statements, and iteration_statements, causing a misleading structure in the AST. For example,
+        consider the following C code.
 
             for (int i = 0; i < 3; i++)
                 #pragma omp critical
                 sum += 1;
 
-        This code will compile and execute "sum += 1;" as the body of the for
-        loop. Previous implementations of PyCParser would render the AST for this
-        block of code as follows:
+        This code will compile and execute "sum += 1;" as the body of the for loop. Previous implementations of
+        PyCParser would render the AST for this block of code as follows:
 
             For:
                 DeclList:
@@ -678,12 +675,11 @@ class CParser(Parser):
                 ID: sum
                 Constant: int, 1
 
-        This AST misleadingly takes the Pragma as the body of the loop and the
-        assignment then becomes a sibling of the loop.
+        This AST misleadingly takes the Pragma as the body of the loop, and the assignment then becomes a sibling of
+        the loop.
 
-        To solve edge cases like these, the pragmacomp_or_statement rule groups
-        a pragma and its following statement (which would otherwise be orphaned)
-        using a compound block, effectively turning the above code into:
+        To solve edge cases like these, the pragmacomp_or_statement rule groups a pragma and its following statement
+        (which would otherwise be orphaned) using a compound block, effectively turning the above code into:
 
             for (int i = 0; i < 3; i++) {
                 #pragma omp critical
@@ -713,20 +709,18 @@ class CParser(Parser):
 
             int x, *px, romulo = 5;
 
-        However, for the AST, we will split them to separate Decl
-        nodes.
+        However, for the AST, we will split them to separate Declnodes.
 
-        This rule splits its declarations and always returns a list
-        of Decl nodes, even if it's one element long.
+        This rule splits its declarations and always returns a list of Decl nodes, even if it's one element long.
         """
 
         spec: _DeclarationSpecifiers = p[0]
 
         # p[1] is either a list or None
         #
-        # NOTE: Accessing optional components via index puts the component in a
-        # 1-tuple, so it's now being accessed with p[1][0].
-
+        # NOTE: Accessing optional components via index puts the component in a 1-tuple,
+        # so it's now being accessed with p[1][0].
+        #
         declarator_list = p[1][0]
         if declarator_list is None:
             # By the standard, you must have at least one declarator unless
@@ -1012,9 +1006,8 @@ class CParser(Parser):
             decls = self._build_declarations(spec, decls=[{"decl": decl_type}])
 
         else:
-            # Structure/union members can have the same names as typedefs.
-            # The trouble is that the member's name gets grouped into
-            # specifier_qualifier_list; _build_declarations compensates.
+            # Structure/union members can have the same names as typedefs. The trouble is that the member's name gets
+            # grouped into specifier_qualifier_list; _build_declarations() compensates.
             #
             decls = self._build_declarations(spec, decls=[{"decl": None, "init": None}])
 
@@ -1033,23 +1026,23 @@ class CParser(Parser):
         return [p.struct_declarator0, *p.struct_declarator1]
 
     @_("declarator")
-    def struct_declarator(self, p: Any):
+    def struct_declarator(self, p: Any) -> _StructDeclaratorDict:
         """Handle a struct declarator.
 
         Returns
         -------
-        dict[str, Any]
+        _StructDeclaratorDict
             A dict with the keys "decl" (for the underlying declarator) and "bitsize" (for the bitsize).
         """
 
         return {"decl": p.declarator, "bitsize": None}
 
     @_('declarator ":" constant_expression')
-    def struct_declarator(self, p: Any):
+    def struct_declarator(self, p: Any) -> _StructDeclaratorDict:
         return {"decl": p.declarator, "bitsize": p.constant_expression}
 
     @_('":" constant_expression')
-    def struct_declarator(self, p: Any):
+    def struct_declarator(self, p: Any) -> _StructDeclaratorDict:
         return {"decl": c_ast.TypeDecl(None, None, None, None), "bitsize": p.constant_expression}
 
     @_("ENUM ID", "ENUM TYPEID")
@@ -1098,7 +1091,9 @@ class CParser(Parser):
         return p[0]
 
     # ========
-    # region Experimental usage of `subst` for $$$_declarator and direct_$$$_declarator rules.
+    # region -- Experimental usage of `subst()` for $$$_declarator and direct_$$$_declarator rules
+    #
+    # Note: $$$ is substituted with id, typeid, and typeid_noparen, depending on the rule.
     # ========
 
     # fmt: off
@@ -1152,9 +1147,9 @@ class CParser(Parser):
     @subst_ids
     @_('direct_${_SUB1}_declarator "[" STATIC [ type_qualifier_list ] assignment_expression "]"')
     def direct__SUB1_declarator(self, p: Any):
-        listed_quals: list[list[Any]] = [
+        listed_quals: Generator[list[Any]] = (
             (item if isinstance(item, list) else [item]) for item in [p.type_qualifier_list, p.assignment_expression]
-        ]
+        )
         dim_quals = [qual for sublist in listed_quals for qual in sublist if qual is not None]
         arr = c_ast.ArrayDecl(
             type=None,  # pyright: ignore [reportArgumentType] # Gets fixed in _type_modify_decl.
@@ -1168,7 +1163,7 @@ class CParser(Parser):
     @subst_ids
     @_('direct_${_SUB1}_declarator "[" type_qualifier_list STATIC assignment_expression "]"')
     def direct__SUB1_declarator(self, p: Any):
-        listed_quals: list[list[Any]] = [(item if isinstance(item, list) else [item]) for item in [p[3], p[4]]]
+        listed_quals: Generator[list[Any]] = ((item if isinstance(item, list) else [item]) for item in [p[3], p[4]])
         dim_quals = [qual for sublist in listed_quals for qual in sublist if qual is not None]
         arr = c_ast.ArrayDecl(
             type=None,  # pyright: ignore [reportArgumentType] # Gets fixed in _type_modify_decl.
@@ -1217,7 +1212,7 @@ class CParser(Parser):
         # read and incorrectly interpreted as TYPEID.
         # We need to add the parameters to the scope the moment the lexer sees LBRACE.
         #
-        if self.lookahead.type == "LBRACE" and func.args is not None:
+        if self.lookahead and (self.lookahead.type == "LBRACE") and (func.args is not None):
             for param in func.args.params:
                 if isinstance(param, c_ast.EllipsisParam):
                     break
@@ -1225,7 +1220,7 @@ class CParser(Parser):
 
         return self._type_modify_decl(decl=p[0], modifier=func)
 
-    del subst_ids
+    del subst_ids  # Explicit cleanup: subst() is temporary, but this isn't.
 
     # endregion
 
@@ -1867,11 +1862,8 @@ class CParser(Parser):
     @override
     def error(self, token: Any) -> NoReturn:
         if token:
-            if lineno := getattr(token, "lineno", 0):
-                msg = f"Syntax error at line {lineno}, token={token.type!r}."
-            else:
-                msg = f"Syntax error, token={token.type!r}."
-            location = Coord(lineno, token.index, token.end)
+            msg = "Syntax error."
+            location = Coord(getattr(token, "lineno", 0), token.index, token.end)
         else:
             msg = "Parse error in input. EOF."
             location = Coord(-1, -1)
