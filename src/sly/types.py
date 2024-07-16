@@ -10,25 +10,24 @@ runtime.
 Raises
 ------
 ImportError
-    If `_` is imported at runtime.
+    If the module is imported at runtime. This is intentionally done by using `typing.type_check_only()`, which doesn't
+    exist at runtime.
 """
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Protocol, TypeVar
+from typing import Any, Final, Protocol, TypeVar, cast, type_check_only
 
 __all__ = ("_",)
 
-_CallableT = TypeVar("_CallableT", bound=Callable[..., object])
+_CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
 
 
+@type_check_only
 class _RuleDecorator(Protocol):
-    # Technically, the `@_` for Lexer has a first parameter name: "pattern". However, since `@_` for lex and yacc both
+    # Technically, the `@_` for lex has a first parameter name: "pattern". However, since `@_` for lex and yacc both
     # only accept positional-only strings, it shouldn't matter.
     def __call__(self, rule: str, *extras: str) -> Callable[[_CallableT], _CallableT]: ...
 
 
-if TYPE_CHECKING:
-    from typing import Final, cast
-
-    _: Final = cast(_RuleDecorator, object())
-    """Typing aid for `@_` within `sly.Lexer` and `sly.Parser` subclasses. Do not import at runtime."""
+_: Final = cast(_RuleDecorator, object())
+"""Typing aid for `@_` within `sly.Lexer` and `sly.Parser` subclasses. Do not import at runtime."""
