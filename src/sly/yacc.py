@@ -2068,9 +2068,11 @@ class ParserMeta(type):
     def __new__(cls, clsname: str, bases: tuple[type, ...], namespace: ParserMetaDict, **kwds: object):
         del namespace["_"]
         del namespace["subst"]
-        self = super().__new__(cls, clsname, bases, namespace, **kwds)
+        return super().__new__(cls, clsname, bases, namespace, **kwds)
+
+    def __init__(self, clsname: str, bases: tuple[type, ...], namespace: ParserMetaDict, **kwds: object) -> None:
+        super().__init__(clsname, bases, namespace, **kwds)
         self._build(list(namespace.items()))  # pyright: ignore # This method should always exist in Parser subclasses.
-        return self
 
 
 _ConcreteSeqOfStr: TypeAlias = Union[list[str], tuple[str, ...]]
