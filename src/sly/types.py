@@ -15,17 +15,17 @@ ImportError
 """
 
 from collections.abc import Callable
-from typing import Any, Final, Protocol, TypeVar, cast, type_check_only
+from typing import Final, Protocol, TypeVar, cast, type_check_only
 
 __all__ = ("_",)
 
-_CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
+_CallableT = TypeVar("_CallableT", bound=Callable[..., object])
 
 
 @type_check_only
 class _RuleDecorator(Protocol):
-    # Technically, the `@_` for lex has a first parameter name: "pattern". However, since `@_` for lex and yacc both
-    # only accept positional-only strings, it shouldn't matter.
+    # Technically, the `@_` for Lexer has a different first parameter name: "pattern". However, since `@_` in Lexer
+    # and Parser both only accept positional-only strings, it shouldn't matter.
     def __call__(self, rule: str, *extras: str) -> Callable[[_CallableT], _CallableT]: ...
 
 
