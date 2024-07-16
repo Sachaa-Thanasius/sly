@@ -39,14 +39,7 @@ import sys
 import threading
 from collections import defaultdict
 from collections.abc import Callable, Collection, Generator, Iterator
-from functools import reduce
-from string import Template
 from typing import TYPE_CHECKING, Any, ClassVar, Optional, TextIO, Union, cast
-
-if TYPE_CHECKING:
-    from types import FunctionType
-else:
-    FunctionType = type(lambda: None)
 
 from ._misc import MISSING, CallableT, TypeAlias, override
 from .lex import Token
@@ -2028,38 +2021,17 @@ class ParserMetaDict(dict[str, Any]):
 
     @override
     def __setitem__(self, key: str, value: Any) -> None:
-        if callable(value) and hasattr(value, "rules"):
-            # Logic for @subst.
-            substitutions: Optional[list[dict[str, str]]] = getattr(value, "substitutions", None)
-            if substitutions is not None:
-                for sub in substitutions:
-                    subst_name: str = reduce(lambda nm, sb: nm.replace(sb[0], sb[1]), sub.items(), value.__name__)
-                    subst_func = FunctionType(
-                        value.__code__, value.__globals__, subst_name, value.__defaults__, value.__closure__
-                    )
-                    subst_func.rules = [  # pyright: ignore # Runtime attribute assignment.
-                        Template(rule_templ).substitute(sub) for rule_templ in reversed(value.rules)
-                    ]
-                    self.__chain_rules(subst_name, subst_func)
-                    super().__setitem__(subst_name, subst_func)
-                return
-
-            self.__chain_rules(key, value)
+        if (key in self) and callable(value) and hasattr(value, "rules"):
+            value.next_func = self[key]
+            if not hasattr(value.next_func, "rules"):
+                msg = f"Redefinition of {key}. Perhaps an earlier {key} is missing `@_`."
+                raise GrammarError(msg)
         super().__setitem__(key, value)
 
     def __missing__(self, key: str) -> str:
         if key.isupper() and key[:1] != "_":
             return key.upper()
         raise KeyError(key)
-
-    def __chain_rules(self, key: str, value: Any) -> None:
-        """Link rules with matching names, as long as they are actually rules."""
-
-        if key in self:
-            value.next_func = self[key]
-            if not hasattr(value.next_func, "rules"):
-                msg = f"Redefinition of {key}. Perhaps an earlier {key} is missing `@_`."
-                raise GrammarError(msg)
 
 
 def _substitute_decorator(sub: dict[str, str], *extra: dict[str, str]) -> Callable[[CallableT], CallableT]:
