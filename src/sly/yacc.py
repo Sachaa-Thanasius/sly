@@ -2034,16 +2034,6 @@ class ParserMetaDict(dict[str, Any]):
         raise KeyError(key)
 
 
-def _substitute_decorator(sub: dict[str, str], *extra: dict[str, str]) -> Callable[[CallableT], CallableT]:
-    substitutions = [sub, *extra]
-
-    def decorate(func: CallableT) -> CallableT:
-        func.substitutions = substitutions  # pyright: ignore # Runtime attribute assignment.
-        return func
-
-    return decorate
-
-
 def _rules_decorator(rule: str, *extra: str) -> Callable[[CallableT], CallableT]:
     rules = [rule, *extra]
 
@@ -2062,12 +2052,10 @@ class ParserMeta(type):
     def __prepare__(cls, clsname: str, bases: tuple[type, ...], **kwds: object) -> ParserMetaDict:
         namespace = ParserMetaDict()
         namespace["_"] = _rules_decorator
-        namespace["subst"] = _substitute_decorator
         return namespace
 
     def __new__(cls, clsname: str, bases: tuple[type, ...], namespace: ParserMetaDict, **kwds: object):
         del namespace["_"]
-        del namespace["subst"]
         return super().__new__(cls, clsname, bases, namespace, **kwds)
 
     def __init__(self, clsname: str, bases: tuple[type, ...], namespace: ParserMetaDict, **kwds: object) -> None:
