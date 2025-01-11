@@ -1,8 +1,10 @@
 """Support creation of simple AST nodes."""
 
+from __future__ import annotations
+
 import sys
 
-from ._misc import Self
+from . import _typing_compat as _t
 
 
 class AST:
@@ -14,7 +16,7 @@ class AST:
 
         hints = list(cls.__annotations__.items())
 
-        def __init__(self: Self, *args: object, **kwargs: object) -> None:
+        def __init__(self: _t.Self, *args: object, **kwargs: object) -> None:
             if len(hints) != len(args):
                 msg = f"Expected {len(hints)} arguments"
                 raise TypeError(msg)

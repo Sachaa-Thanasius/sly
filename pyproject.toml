@@ -11,7 +11,7 @@ readme = "README.rst"
 license = "BSD-3-Clause"
 authors = [{ name = "David Beazley", email = "dave@dabeaz.com" }]
 maintainers = [
-    { name = "Sachaa-Thanasius", email = "111999343+Sachaa-Thanasius@users.noreply.github.com" },
+    { name = "Sachaa-Thanasius", email = "sachaathanasius@gmail.com" },
 ]
 classifiers = [
     "License :: OSI Approved :: BSD License",
@@ -44,13 +44,13 @@ extra-dependencies = ["covdefaults"]
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib", "--strict-markers", "--strict-config"]
 
+[tool.coverage.paths]
+sly = ["src"]
+
 [tool.coverage.run]
 plugins = ["covdefaults"]
 source = ["sly", "tests"]
 omit = ["src/sly/types.py"]
-
-[tool.coverage.paths]
-sly = ["src"]
 
 [tool.coverage.report]
 exclude_lines = ["^\\s*(?:el)?if TYPE_CHECKING:$"]
@@ -61,7 +61,6 @@ exclude_lines = ["^\\s*(?:el)?if TYPE_CHECKING:$"]
 [tool.ruff]
 include = ["src/sly/*.py"]
 line-length = 120
-target-version = "py39"
 
 [tool.ruff.lint]
 select = [
@@ -71,13 +70,16 @@ select = [
     "UP",
     "YTT",
     "ANN",
+    "ASYNC",
     "S",
     "BLE",
+    # "FBT",
     "B",
     "A",
     "COM",
     "C4",
     "DTZ",
+    "T10",
     "EM",
     "ISC",
     "G",
@@ -94,45 +96,60 @@ select = [
     "ERA",
     "PL",
     "TRY",
+    "PERF",
+    "FURB",
     "RUF",
 ]
 extend-ignore = [
-    "S101",   # Use of assert here is a known quantity for typing cases. Safe to optimize out.
-    "SIM105", # Suppressable exception. contextlib.suppress is a stylistic choice with overhead.
-    "C90",    # McCabe complexity.
-    "PD011",  # Erroneous issue that triggers for any .values attribute access at all.
-    "ANN101", # Type of Self for self is usually implicit and/or known by the type-checker.
-    "ANN102", # Type of type[Self] for cls is usually implicit and/or known by the type-checker.
-    "ANN204", # Special method return types are usually implicit and/or known by type checker.
-    "ANN401", # Any is needed for some parameters.
-    "UP038",  # isinstance performs better with tuples than unions.
-    "PT001",  # pytest recommends against empty parentheses on pytest.fixture.
-    "PYI036", # Bug with annotations for __exit__.
-    "PLR",    # It's a parser generator; it's going to be complex.
-    # Recommended by Ruff when using Ruff format.
+    # ---- General
+    "S101",    # Use of assert here is a known quantity for typing cases. All uses should be safe to optimize out.
+    "SIM105",  # Suppressable exception. contextlib.suppress is a stylistic choice with overhead.
+    "C90",     # McCabe complexity.
+    "ANN204",  # Special method return types are usually implicit and/or known by type checker.
+    "ANN401",  # Any is needed for some annotations.
+    "UP038",   # isinstance performs better with tuples than unions.
+    "PT001",   # pytest recommends against empty parentheses on pytest.fixture.
+    "PD011",   # Erroneous issue that triggers for any .values attribute access at all.
+    "PLR2004", # "Magic number" depends on the use case.
+    "RUF002",  # "Ambiguous character" depends on the use case.
+    "RUF003",  # "Ambiguous character" depends on the use case.
+    "RUF022",  # __all__ ordering can be meaningful.
+    "RUF023",  # __slots__ ordering can be meaningful. 
+
+    # ---- Recommended by Ruff when using Ruff format
     "E111",
     "E114",
     "E117",
+    "E501",
     "COM812",
     "COM819",
-    "E501",
     "ISC001",
     "ISC002",
-    # -- Project-specific rules.
-    # Readability: Allow else and elif after return, raise, and continue.
-    "RET505",
-    "RET506",
-    "RET507",
+
+    # ---- Project-specific rules
+    # Readability
+    "RET505", # el(se|if) after return.
+    "RET506", # el(se|if) after raise.
+    "RET507", # el(se|if) after continue.
+    "RET508", # el(se|if) after break.
+    "SIM108", # if-else instead of a ternary.
+
+    # Other
+    "PLR",    # It's a parser generator; it's going to be complex.
     "ERA001", # Leave commented code alone.
-    "SIM108", # Readability: Don't always shorten to ternary.
     "RUF002", # Leave my en dashes alone.
     "PTH123", # Builtin open() is fine.
+    "A005",   # Shadowing builtin modules is fine for sly submodules.
 ]
 unfixable = [
     "ERA", # Prevent unlikely erroneous deletion.
 ]
 
-typing-modules = ["src/sly/_misc"]
+typing-modules = ["sly._typing_compat"]
+
+[tool.ruff.lint.isort]
+lines-after-imports = 2
+combine-as-imports = true
 
 [tool.ruff.lint.pyupgrade]
 keep-runtime-typing = true
@@ -151,7 +168,7 @@ keep-runtime-typing = true
     "F811",   # Redefining methods within Lexer/Parser subclasses is allowed because of metaclass hackery.
     "F821",   # Undefined names within Lexer/Parser subclasses are allowed because of metaclass hackery.
     "T201",   # Allow printing.
-    "ANN201", # Allow lack of return annotations for public functions. Tests return None usually.
+    "ANN201", # Unnecessary public function return annotations.
 ]
 "example/**/*.py" = [
     # Refer to comments in the tests/*.py entry.
@@ -175,11 +192,10 @@ pythonPlatform = "All"
 typeCheckingMode = "strict"
 
 reportPrivateUsage = "none"                    # We're the package; of course we're accessing internals.
-reportUnnecessaryIsInstance = "none"           # Account for bad input from users.
+reportUnnecessaryIsInstance = "none"           # Verify user input.
 reportUninitializedInstanceVariable = "none"   # Occasionally nice as a checkup, but otherwise noisy.
 reportCallInDefaultInitializer = "warning"
-reportImplicitOverride = "warning"
-reportImportCycles = "none"
+reportImportCycles = "none"                    # Occasionally not a false positive.
 reportPropertyTypeMismatch = "error"
 reportShadowedImports = "error"
 reportUnnecessaryTypeIgnoreComment = "warning"

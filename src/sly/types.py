@@ -1,11 +1,12 @@
-"""Types for functions that only exist during sly class creation, i.e. the  `@_` decorator.
+# ruff: noqa: E402
+
+"""Types for symbols that only exist during sly class creation, i.e. the  `@_` decorator.
 
 Extended Summary
 ----------------
-Because `@_` doesn't technically exist outside of the body of a `sly.Lexer` or `sly.Parser` subclass body, it cannot
-be imported at runtime. However, it can still provide typing and intellisense support if "fake" imported in such a way
-that type-checkers and IDEs can see it, e.g. within an `if typing.TYPE_CHECKING: ...` block, that doesn't execute at
-runtime.
+Because the `_` decorator doesn't exist outside of the body of a `sly.Lexer` or `sly.Parser` subclass body, it cannot be
+imported at runtime. However, it can still provide typing and intellisense support if "fake" imported such that
+type-checkers and IDEs can see it but the Python runtime doesn't, e.g. within an `if typing.TYPE_CHECKING: ...` block.
 
 Raises
 ------
@@ -14,12 +15,22 @@ ImportError
     exist at runtime.
 """
 
+from __future__ import annotations
+
+
+TYPE_CHECKING = False
+
+if not TYPE_CHECKING:
+    msg = "This module cannot be imported at runtime; see docstring for more details."
+    raise ImportError(msg, name=__spec__.name)
+
 from collections.abc import Callable
-from typing import Final, Protocol, TypeVar, cast, type_check_only
+from typing import Any, Final, Protocol, TypeVar, cast, type_check_only
+
 
 __all__ = ("_",)
 
-_CallableT = TypeVar("_CallableT", bound=Callable[..., object])
+_CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
 
 
 @type_check_only

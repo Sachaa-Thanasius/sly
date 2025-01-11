@@ -1,25 +1,25 @@
 """Support docstring-parsing classes."""
 
-from typing import TYPE_CHECKING, Any, ClassVar
+from __future__ import annotations
 
-if TYPE_CHECKING:
-    from .lex import Lexer
-    from .yacc import Parser
+from . import _typing_compat as _t
+from .lex import Lexer
+from .yacc import Parser
+
+
+TYPE_CHECKING = False
+
 
 __all__ = ("DocParseMeta",)
 
 
 class DocParseMeta(type):
     '''Metaclass that processes the class docstring through a parser and incorporates the result into the resulting
-    class definition.
-
-    Extended Summary
-    ----------------
-    This allows Python classes to be defined with alternative syntax.
+    class definition. This allows Python classes to be defined with alternative syntax.
 
     Examples
     --------
-    To use this class, you first need to define a lexer and parser:
+    To use this class, you first need to define a lexer and parser::
 
         from sly import Lexer, Parser
 
@@ -30,13 +30,13 @@ class DocParseMeta(type):
             ...
 
     You then need to define a metaclass that inherits from DocParseMeta. This class must specify the associated lexer
-    and parser classes. For example:
+    and parser classes. For example::
 
         class MyDocParseMeta(DocParseMeta):
             lexer = MyLexer
             parser = MyParser
 
-    This metaclass is then used as a base for processing user-defined classes:
+    This metaclass is then used as a base for processing user-defined classes::
 
         class Base(metaclass=MyDocParseMeta):
             pass
@@ -52,10 +52,10 @@ class DocParseMeta(type):
     '''
 
     if TYPE_CHECKING:
-        lexer: ClassVar[type[Lexer]]
-        parser: ClassVar[type[Parser]]
+        lexer: _t.ClassVar[type[Lexer]]
+        parser: _t.ClassVar[type[Parser]]
 
-    def __new__(cls, clsname: str, bases: tuple[type, ...], namespace: dict[str, Any]):
+    def __new__(cls, clsname: str, bases: tuple[type, ...], namespace: dict[str, _t.Any]):
         if "__doc__" in namespace:
             lexer = cls.lexer()
             parser = cls.parser()
