@@ -137,11 +137,6 @@ class YaccSymbol:
 class YaccProduction:
     """This class is a wrapper around the objects actually passed to each grammar rule.
 
-    Methods
-    -------
-    lineno()
-        Return the line number of the item if found. Otherwise, raise.
-
     Notes
     -----
     Index lookup and assignment actually assign the `.value` attribute of the underlying `YaccSymbol` object.
@@ -170,8 +165,7 @@ class YaccProduction:
         """
 
         for tok in self._slice:
-            lineno = getattr(tok, "lineno", None)
-            if lineno:
+            if lineno := getattr(tok, "lineno", None):
                 return lineno
         msg = "No line number found."
         raise AttributeError(msg)
@@ -179,8 +173,7 @@ class YaccProduction:
     @property
     def index(self) -> _t.Any:
         for tok in self._slice:
-            index = getattr(tok, "index", None)
-            if index is not None:
+            if (index := getattr(tok, "index", None)) is not None:
                 return index
         msg = "No index attribute found."
         raise AttributeError(msg)
@@ -189,36 +182,35 @@ class YaccProduction:
     def end(self) -> _t.Any:
         result = None
         for tok in self._slice:
-            r = getattr(tok, "end", None)
-            if r:
+            if r := getattr(tok, "end", None):
                 result = r
         return result
 
-    def __getitem__(self, n: int) -> _t.Any:
-        if n >= 0:
-            return self._slice[n].value
+    def __getitem__(self, index: int, /) -> _t.Any:
+        if index >= 0:
+            return self._slice[index].value
         else:
             assert self._stack is not None
-            return self._stack[n].value
+            return self._stack[index].value
 
-    def __setitem__(self, n: int, v: _t.Any) -> None:
+    def __setitem__(self, n: int, value: _t.Any, /) -> None:
         if n >= 0:
-            self._slice[n].value = v
+            self._slice[n].value = value
         else:
             assert self._stack is not None
-            self._stack[n].value = v
+            self._stack[n].value = value
 
     def __len__(self) -> int:
         return len(self._slice)
 
-    def __getattr__(self, name: str) -> _t.Any:
+    def __getattr__(self, name: str, /) -> _t.Any:
         if name in self._namemap:
             return self._namemap[name](self._slice)
         else:
             msg = f"No symbol {name}. Must be one of {{{', '.join(self._namemap)}}}."
             raise AttributeError(msg)
 
-    def __setattr__(self, name: str, value: object) -> None:
+    def __setattr__(self, name: str, value: object, /) -> None:
         if name[:1] == "_":
             super().__setattr__(name, value)
         else:
@@ -237,8 +229,6 @@ class YaccProduction:
 class Production:
     """This class stores the raw information about a single production or grammar rule.
 
-    Extended Summary
-    ----------------
     A grammar rule refers to a specification such as this: "expr : expr PLUS term".
 
     Parameters
@@ -354,7 +344,7 @@ class Production:
 
     def __str__(self) -> str:
         if self.prod:
-            s = f'{self.name} -> {" ".join(self.prod)}'
+            s = f"{self.name} -> {' '.join(self.prod)}"
         else:
             s = f"{self.name} -> <empty>"
 
@@ -369,7 +359,7 @@ class Production:
     def __len__(self) -> int:
         return len(self.prod)
 
-    def __getitem__(self, index: int) -> str:
+    def __getitem__(self, index: int, /) -> str:
         return self.prod[index]
 
     def lr_item(self, n: int) -> _t.Optional[LRItem]:
@@ -391,7 +381,7 @@ class Production:
 
 
 class LRItem:
-    """This class represents a specific stage of parsing a production rule, e.g. "expr : expr . PLUS term".
+    """This class represents a specific stage of parsing a production rule, e.g. ``expr : expr . PLUS term``.
 
     Extended Summary
     ----------------
@@ -400,13 +390,15 @@ class LRItem:
     Attributes
     ----------
     name: str
-        Name of the production, e.g. "expr".
+        Name of the production, e.g. ``expr``.
     prod: tuple[str, ...]
-        A list of symbols on the right side ["expr", ".", "PLUS", "term"].
+        A list of symbols on the right side, e.g. ["expr", ".", "PLUS", "term"].
     number: int
         Production number.
     lr_next: LRItem | None
-        Next LR item. Example: If we are "expr -> expr . PLUS term", then lr_next refers to "expr -> expr PLUS . term".
+        Next LR item.
+
+        For instance, f we are ``expr -> expr . PLUS term``, then lr_next refers to ``expr -> expr PLUS . term``.
     lr_index: int
         LR item index (location of the ".") in the prod list.
     lookaheads: dict[int, list[str]]
@@ -435,7 +427,7 @@ class LRItem:
 
     def __str__(self) -> str:
         if self.prod:
-            s = f'{self.name} -> {" ".join(self.prod)}'
+            s = f"{self.name} -> {' '.join(self.prod)}"
         else:
             s = f"{self.name} -> <empty>"
         return s
@@ -500,7 +492,7 @@ class Grammar:
     def __len__(self) -> int:
         return len(self.Productions)
 
-    def __getitem__(self, index: int) -> Production:
+    def __getitem__(self, index: int, /) -> Production:
         return self.Productions[index]
 
     def set_precedence(self, term: str, assoc: str, level: int) -> None:
@@ -545,25 +537,23 @@ class Grammar:
     ) -> None:
         """Given an action function, this function assembles a production rule and computes its precedence level.
 
-        Extended Summary
-        ----------------
         Precedence is determined by the precedence of the right-most non-terminal or the precedence of a terminal
-        specified by "%prec".
+        specified by ``%prec``.
 
         Parameters
         ----------
         prodname: str
-            The name of the production, e.g. "expr" for the rule "expr : expr PLUS term".
+            The name of the production, e.g. "expr" for the rule ``expr : expr PLUS term``.
         syms: list[str]
             The list of symbols representing the production, e.g. ["expr", "PLUS", "term"] for the rule
-            "expr : expr PLUS term".
+            ``expr : expr PLUS term``.
         func: _t.Callable[..., _t.Any], optional
             The action function. Defaults to None.
 
         Raises
         ------
         GrammarError
-            If a production symbol is invalid, or if "%prec" is used incorrectly.
+            If a production symbol is invalid, or if ``%prec`` is used incorrectly.
         """
 
         if prodname in self.Terminals:
@@ -643,9 +633,7 @@ class Grammar:
     def set_start(self, start: _t.Optional[_t.Union[_t.Callable[..., _t.Any], str]] = None) -> None:
         """Sets the starting symbol and creates the augmented grammar.
 
-        Extended Summary
-        ----------------
-        Production rule 0 is "S' -> start" where `start` is the start symbol.
+        Production rule 0 is ``S' -> start`` where ``start`` is the start symbol.
         """
 
         if callable(start):
@@ -695,13 +683,15 @@ class Grammar:
         terminates: dict[str, bool] = {}
 
         # Terminals:
-        terminates.update({t: True for t in self.Terminals})
+        for t in self.Terminals:
+            terminates[t] = True
         terminates["$end"] = True
 
         # Nonterminals:
 
         # Initialize to false:
-        terminates.update({n: False for n in self.Nonterminals})
+        for t in self.Nonterminals:
+            terminates[t] = False
 
         # Then propagate termination until no change:
         while True:
@@ -754,15 +744,13 @@ class Grammar:
             A list of tuples (sym, prod) where sym in the symbol and prod is the production where the symbol was used.
         """
 
-        result: list[tuple[str, Production]] = []
-        for p in self.Productions:
-            if not p:
-                continue
-
-            for s in p.prod:
-                if s not in self.Prodnames and s not in self.Terminals and s != "error":
-                    result.append((s, p))  # noqa: PERF401
-        return result
+        return [
+            (sym, prod)
+            for prod in self.Productions
+            if prod
+            for sym in prod.prod
+            if (sym not in self.Prodnames) and (sym not in self.Terminals) and sym != "error"
+        ]
 
     def unused_terminals(self) -> list[str]:
         """Find all terminals that were defined, but not used by the grammar.
@@ -773,42 +761,39 @@ class Grammar:
             A list of all defined, unused symbols.
         """
 
-        return [s for s, v in self.Terminals.items() if s != "error" and not v]
+        return [sym for sym, v in self.Terminals.items() if sym != "error" and not v]
 
     def unused_rules(self) -> list[Production]:
         """Find all grammar rules that were defined, but not used (maybe not reachable).
 
         Returns
         -------
-        unused_prod: list[Production]
+        list[Production]
             A list of defined, unused productions.
         """
 
-        return [self.Prodnames[s][0] for s, v in self.Nonterminals.items() if not v]
+        return [self.Prodnames[sym][0] for sym, v in self.Nonterminals.items() if not v]
 
     def unused_precedence(self) -> list[tuple[str, str]]:
         """Returns a list of tuples corresponding to precedence rules that were never used by the grammar.
 
         Returns
         -------
-        unused: list[tuple[str, str]]
+        list[tuple[str, str]]
             A list of tuples representing unused precedence rules. The tuples are in the format (term, precedence),
             where term is the name of the terminal on which precedence was applied and precedence is a string such as
             'left' or 'right' corresponding to the type of precedence.
         """
 
-        unused: list[tuple[str, str]] = []
-        for termname in self.Precedence:
-            if not (termname in self.Terminals or termname in self.UsedPrecedence):
-                unused.append((termname, self.Precedence[termname][0]))  # noqa: PERF401
-
-        return unused
+        return [
+            (term_name, assoc)
+            for term_name, (assoc, _level) in self.Precedence.items()
+            if not (term_name in self.Terminals or term_name in self.UsedPrecedence)
+        ]
 
     def _first(self, beta: tuple[str, ...]) -> list[str]:
         """Compute the value of FIRST1(beta) where beta is a tuple of symbols.
 
-        Extended Summary
-        ----------------
         During execution of `compute_first()`, the result may be incomplete.
         Afterward (e.g., when called from `compute_follow()`), it will be complete.
         """
@@ -847,13 +832,15 @@ class Grammar:
             return self.First
 
         # Terminals:
-        self.First.update({t: [t] for t in self.Terminals})
+        for t in self.Terminals:
+            self.First[t] = [t]
         self.First["$end"] = ["$end"]
 
         # Nonterminals:
 
         # Initialize to the empty set:
-        self.First.update({n: [] for n in self.Nonterminals})
+        for n in self.Nonterminals:
+            self.First[n] = []
 
         # Then propagate symbols until no change:
         while True:
@@ -923,14 +910,14 @@ class Grammar:
     def build_lritems(self) -> None:
         """This function walks the list of productions and builds a complete set of the LR items.
 
-        Extended Summary
-        ----------------
-        The LR items are stored in two ways:  First, they are uniquely numbered and placed in the list _lritems.
-        Second, a linked list of LR items is built for each production. For example:
+        Notes
+        -----
+        The LR items are stored in two ways: First, they are uniquely numbered and placed in the list _lritems.
+        Second, a linked list of LR items is built for each production. For example::
 
             E -> E PLUS E
 
-        creates the list
+        creates this list::
 
             [E -> . E PLUS E, E -> E . PLUS E, E -> E PLUS . E, E -> E PLUS E . ]
         """
@@ -965,8 +952,8 @@ class Grammar:
     def __str__(self) -> str:
         """Return str(self).
 
-        Extended Summary
-        ----------------
+        Notes
+        -----
         Serves as debugging output. Printing the grammar will produce a detailed description along with some
         diagnostics.
         """
@@ -981,11 +968,11 @@ class Grammar:
             out.extend(f"    {term}" for term in unused_terminals)
 
         out.append("\nTerminals, with rules where they appear:\n")
-        out.extend(f'{term} : {" ".join(str(s) for s in self.Terminals[term])}' for term in sorted(self.Terminals))
+        out.extend(f"{term} : {' '.join(str(s) for s in self.Terminals[term])}" for term in sorted(self.Terminals))
 
         out.append("\nNonterminals, with rules where they appear:\n")
         out.extend(
-            f'{nonterm} : {" ".join(str(s) for s in self.Nonterminals[nonterm])}'
+            f"{nonterm} : {' '.join(str(s) for s in self.Nonterminals[nonterm])}"
             for nonterm in sorted(self.Nonterminals)
         )
 
@@ -1009,10 +996,8 @@ _SetValuedFunction: _t.TypeAlias = "_t.Callable[[tuple[int, str]], list[str]]"
 
 
 def digraph(X: list[tuple[int, str]], R: _RelationFunction, FP: _SetValuedFunction) -> dict[tuple[int, str], list[str]]:
-    """First helper for computing set valued functions of the form `F(x) = F'(x) U U{F(y) | x R y}`.
+    """First helper for computing set valued functions of the form ``F(x) = F'(x) U U{F(y) | x R y}``.
 
-    Extended Summary
-    ----------------
     This is used to compute the values of Read() sets as well as FOLLOW sets in LALR(1) generation.
 
     Parameters
@@ -1047,10 +1032,8 @@ def traverse(
     R: _RelationFunction,
     FP: _SetValuedFunction,
 ) -> None:
-    """Second helper for computing set valued functions of the form `F(x) = F'(x) U U{F(y) | x R y}`.
+    """Second helper for computing set valued functions of the form ``F(x) = F'(x) U U{F(y) | x R y}``.
 
-    Extended Summary
-    ----------------
     This is used to compute the values of Read() sets as well as FOLLOW sets in LALR(1) generation.
 
     See Also
@@ -1101,12 +1084,12 @@ class LRTable:
             _t.Union[list[LRItem], dict[_t.Union[int, str], list[LRItem]]],
         ] = {}
         self.lr0_cidhash: dict[int, int] = {}  # Cache of closures
-        self._add_count = 0  # Internal counter used to detect cycles
+        self._add_count: int = 0  # Internal counter used to detect cycles
 
         # Diagonistic information filled in by the table generator
         self.state_descriptions: dict[int, str] = {}
-        self.sr_conflict = 0
-        self.rr_conflict = 0
+        self.sr_conflict: int = 0
+        self.rr_conflict: int = 0
         self.conflicts = []  # List of conflicts
 
         self.sr_conflicts: list[tuple[int, str, str]] = []
@@ -1270,8 +1253,6 @@ class LRTable:
     def find_nonterminal_transitions(self, C: list[list[LRItem]]) -> list[tuple[int, str]]:
         """Given a set of LR(0) items, this functions finds all of the non-terminal transitions.
 
-        Extended Summary
-        ----------------
         Non-terminal transitions are transitions in which a dot appears immediately before a non-terminal.
 
         Parameters
@@ -1281,18 +1262,19 @@ class LRTable:
 
         Returns
         -------
-        The list of nonterminal transitions, which are tuples of the form (state,N) where state is the state number
-        and N is the nonterminal symbol.
+        list[tuple[int, str]]
+            The list of nonterminal transitions, which are tuples of the form (state,N) where state is the state number
+            and N is the nonterminal symbol.
         """
 
-        trans: list[tuple[int, str]] = []
+        transitions: list[tuple[int, str]] = []
         for stateno, state in enumerate(C):
             for p in state:
                 if p.lr_index < p.len - 1:
                     t = (stateno, p.prod[p.lr_index + 1])
-                    if t[1] in self.grammar.Nonterminals and t not in trans:
-                        trans.append(t)
-        return trans
+                    if t[1] in self.grammar.Nonterminals and t not in transitions:
+                        transitions.append(t)
+        return transitions
 
     def dr_relation(self, C: list[list[LRItem]], trans: tuple[int, str], nullable: set[str]) -> list[str]:
         """Computes the DR(p,A) relationships for non-terminal transitions.
@@ -1360,15 +1342,15 @@ class LRTable:
         LOOKBACK:
 
         This relation is determined by running the LR(0) state machine forward. For example, starting with a production
-        "N : . A B C", we run it forward to obtain "N : A B C ." We then build a relationship between this final state
-        and the starting state. These relationships are stored in a dictionary `lookdict`.
+        ``N : . A B C``, we run it forward to obtain ``N : A B C .``. We then build a relationship between this final
+        state and the starting state. These relationships are stored in a dictionary `lookdict`.
 
         INCLUDES:
 
-        Computes the INCLUDE() relation (p,A) INCLUDES (p',B).
+        Computes the INCLUDE() relation ``(p,A) INCLUDES (p',B)``.
 
         This relation is used to determine non-terminal transitions that occur inside of other non-terminal transition
-        states. (p,A) INCLUDES (p', B) if the following holds:
+        states. ``(p,A) INCLUDES (p', B)`` if the following holds::
 
             B -> LAT, where T -> epsilon and p' -L-> p
 
@@ -1721,8 +1703,8 @@ class LRTable:
     def __str__(self) -> str:
         """Return str(self).
 
-        Extended Summary
-        ----------------
+        Notes
+        -----
         Serves as debugging output. Printing the LRTable object will produce a listing of all of the states, conflicts,
         and other details.
         """
@@ -1860,9 +1842,8 @@ def _sanitize_symbols(symbols: list[str]) -> _t.Generator[str]:
 
 
 def _generate_repeat_rules(symbols: list[str]) -> tuple[str, list[_RawGrammarRule]]:
-    """Based on a given list of grammar symbols [ symbols ], generate code corresponding to these grammar construction:
-
-    .. code-block:: python
+    """Based on a given list of grammar symbols [ symbols ], generate code corresponding to these grammar
+    construction::
 
         @('repeat : many')
         def repeat(self, p):
@@ -1931,9 +1912,8 @@ def _generate_repeat_rules(symbols: list[str]) -> tuple[str, list[_RawGrammarRul
 
 
 def _generate_optional_rules(symbols: list[str]) -> tuple[str, list[_RawGrammarRule]]:
-    """Based on a given list of grammar symbols [ symbols ], generate code corresponding to these grammar construction:
-
-    .. code-block:: python
+    """Based on a given list of grammar symbols [ symbols ], generate code corresponding to these grammar
+    construction::
 
         @('optional : symbols')
         def optional(self, p):
@@ -1992,11 +1972,11 @@ def _generate_choice_rules(symbols: list[str]) -> tuple[str, list[_RawGrammarRul
     _ = _rules_decorator
     productions: list[_RawGrammarRule] = []
 
+    @_(*symbols)
     def choice(self: Parser, p: _t.Any) -> _t.Any:
         return p[0]
 
     choice.__name__ = name
-    choice = _(*symbols)(choice)
     productions.extend(_collect_grammar_rules(choice))
     return name, productions
 
@@ -2046,17 +2026,17 @@ class ParserMeta(type):
     """Metaclass for collecting parsing rules."""
 
     @classmethod
-    def __prepare__(cls, clsname: str, bases: tuple[type, ...], **kwds: object) -> ParserMetaDict:
+    def __prepare__(cls, name: str, bases: tuple[type, ...], /, **kwds: object) -> ParserMetaDict:
         namespace = ParserMetaDict()
         namespace["_"] = _rules_decorator
         return namespace
 
-    def __new__(cls, clsname: str, bases: tuple[type, ...], namespace: ParserMetaDict, **kwds: object):
+    def __new__(cls, name: str, bases: tuple[type, ...], namespace: ParserMetaDict, /, **kwds: object):
         del namespace["_"]
-        return super().__new__(cls, clsname, bases, namespace, **kwds)
+        return super().__new__(cls, name, bases, namespace, **kwds)
 
-    def __init__(self, clsname: str, bases: tuple[type, ...], namespace: ParserMetaDict, **kwds: object) -> None:
-        super().__init__(clsname, bases, namespace, **kwds)
+    def __init__(self, name: str, bases: tuple[type, ...], namespace: ParserMetaDict, /, **kwds: object) -> None:
+        super().__init__(name, bases, namespace, **kwds)
         self._build(list(namespace.items()))  # pyright: ignore # This method should always exist in Parser subclasses.
 
 
@@ -2077,7 +2057,7 @@ class Parser(metaclass=ParserMeta):
         Current lookahead symbol. Be careful with this.
     """
 
-    # ---- These attributes may be defined in subclasses.
+    # ---- Public class attributes.
     if TYPE_CHECKING:
         tokens: _t.ClassVar[set[str]]
         """Lexing tokens. Must be defined in a subclass by a user."""
@@ -2088,7 +2068,7 @@ class Parser(metaclass=ParserMeta):
         Can be defined in a subclass by a user.
         """
 
-    log = SlyLogger(sys.stderr)
+    log: _t.ClassVar[_t.LoggerLike] = SlyLogger(sys.stderr)
     """Logging object where debugging/diagnostic messages are sent."""
 
     debugfile: _t.ClassVar[_t.Optional[str]] = None
@@ -2100,27 +2080,24 @@ class Parser(metaclass=ParserMeta):
     error_count: _t.ClassVar[int] = 3
     """The number of symbols that must be shifted to leave recovery mode. Yacc config knob."""
 
-    errorok: bool
-    given_tokens: _t.Iterator[Token]
-    lookahead: _t.Optional[_t.Union[Token, YaccSymbol]]
-
     def __init__(self) -> None:
-        self.errorok = MISSING
-        self.given_tokens = MISSING
-        self.lookahead = None
+        # ---- Public interface
+        self.errorok: bool = MISSING
+        self.given_tokens: _t.Iterator[Token] = MISSING
+        self.lookahead: _t.Optional[_t.Union[Token, YaccSymbol]] = None
 
         # ---- Internal bookkeeping attributes
-        # Current state
+        #: Current state
         self.state: int = 0
-        # Stack of parsing states
+        #: Stack of parsing states
         self.statestack: list[int] = [0]
-        # Stack of grammar symbols
+        #: Stack of grammar symbols
         self.symstack: list[YaccSymbol] = [YaccSymbol(type="$end")]
-        # Position tracker: id -> lineno
+        #: Position tracker: id -> lineno
         self._line_positions: dict[int, _t.Optional[int]] = {}
-        # Position tracker: id -> (start, end)
+        #: Position tracker: id -> (start, end)
         self._index_positions: dict[int, tuple[_t.Optional[int], _t.Optional[int]]] = {}
-        # Current production
+        #: Current production
         self.production: Production = MISSING
 
     @classmethod
@@ -2323,7 +2300,7 @@ class Parser(metaclass=ParserMeta):
     # Parsing Support. This is the parsing runtime that users use.
     # ----------------------------------------------------------------------
     def error(self, token: _t.Optional[_t.Union[Token, YaccSymbol]]) -> None:
-        """Default error handling function. This may be subclassed."""
+        """Default error handling function. This may be redefined in subclasses."""
 
         if token:
             lineno = getattr(token, "lineno", 0)

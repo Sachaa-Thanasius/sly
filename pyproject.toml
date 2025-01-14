@@ -63,6 +63,8 @@ include = ["src/sly/*.py"]
 line-length = 120
 
 [tool.ruff.lint]
+typing-modules = ["sly._typing_compat"]
+
 select = [
     "F",
     "E",
@@ -145,7 +147,6 @@ unfixable = [
     "ERA", # Prevent unlikely erroneous deletion.
 ]
 
-typing-modules = ["sly._typing_compat"]
 
 [tool.ruff.lint.isort]
 lines-after-imports = 2

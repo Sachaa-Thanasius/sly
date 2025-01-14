@@ -174,7 +174,7 @@ class LexerMetaDict(_lexer_dict_base):
         self.delete: list[str] = []
         self.remap: dict[tuple[str, _t.Any], _t.Any] = {}
 
-    def __setitem__(self, key: str, value: _t.Any) -> None:
+    def __setitem__(self, key: str, value: _t.Any, /) -> None:
         if isinstance(value, str):
             value = TokenStr(value, key, self.remap)
 
@@ -186,14 +186,14 @@ class LexerMetaDict(_lexer_dict_base):
             prior = self[key]
             if isinstance(prior, str):
                 if callable(value):
-                    value.pattern = prior
+                    value.pattern = prior  # pyright: ignore [reportFunctionMemberAccess] # Runtime attribute assignment.
                 else:
                     msg = f"Name {key!r} redefined."
                     raise AttributeError(msg)  # noqa: TRY004
 
         super().__setitem__(key, value)
 
-    def __delitem__(self, key: str) -> None:
+    def __delitem__(self, key: str, /) -> None:
         self.delete.append(key)
         if key not in self and key.isupper():
             return None
@@ -229,37 +229,34 @@ _TokenMatchAction: _t.TypeAlias = "_t.Callable[[Lexer, Token], _t.Optional[Token
 class LexerMeta(type):
     """Metaclass for collecting lexing rules."""
 
-    _remap: dict[tuple[str, _t.Any], _t.Any]
-    _before: dict[str, str]
-    _delete: list[str]
-
     if TYPE_CHECKING:
         # Created by _build().
         _rules: list[tuple[str, _t.Union[str, _TokenMatchAction]]]
         _master_re: re.Pattern[str]
 
     @classmethod
-    def __prepare__(cls, clsname: str, bases: tuple[type, ...], /, **kwds: object) -> LexerMetaDict:
+    def __prepare__(cls, name: str, bases: tuple[type, ...], /, **kwds: object) -> LexerMetaDict:
         namespace = LexerMetaDict()
         namespace["_"] = _match_action_decorator
         namespace["before"] = _Before
         return namespace
 
-    def __new__(cls, clsname: str, bases: tuple[type, ...], namespace: LexerMetaDict, /, **kwds: object):
+    def __new__(cls, name: str, bases: tuple[type, ...], namespace: LexerMetaDict, /, **kwds: object):
         del namespace["_"]
         del namespace["before"]
 
         # Create attributes for use in the actual class body
-        real_namespace = {str(key): (str(val) if isinstance(val, TokenStr) else val) for key, val in namespace.items()}
-        self = super().__new__(cls, clsname, bases, real_namespace, **kwds)
+        final_namespace = {str(key): (str(val) if isinstance(val, TokenStr) else val) for key, val in namespace.items()}
+        return super().__new__(cls, name, bases, final_namespace, **kwds)
+
+    def __init__(self, name: str, bases: tuple[type, ...], namespace: LexerMetaDict, /, **kwds: object):
+        super().__init__(name, bases, namespace, **kwds)
 
         # Attach various metadata to the class
-        self._remap = namespace.remap
-        self._before = namespace.before
-        self._delete = namespace.delete
+        self._remap: dict[tuple[str, _t.Any], _t.Any] = namespace.remap
+        self._before: dict[str, str] = namespace.before
+        self._delete: list[str] = namespace.delete
         self._build(dict(namespace))  # pyright: ignore # This method should always exist in Lexer subclasses.
-
-        return self
 
 
 class Lexer(metaclass=LexerMeta):
@@ -275,26 +272,28 @@ class Lexer(metaclass=LexerMeta):
         Current line number of the lexer within the text.
     """
 
-    # ---- These attributes may be redefined in subclasses.
+    # ---- Public class attributes.
     tokens: _t.ClassVar[set[str]] = set()
     """Set of token names. This is always required."""
 
     literals: _t.ClassVar[set[str]] = set()
     """Characters serving as tokens that are always returned "as is"."""
 
-    ignore: str = ""
+    ignore: _t.ClassVar[str] = ""
     """String containing ignored characters between tokens."""
 
-    reflags: int = 0
+    reflags: _t.ClassVar[int] = 0
     regex_module = re
 
     # ---- Internal attributes
-    _token_names: _t.ClassVar[set[str]] = set()
-    _token_funcs: _t.ClassVar[dict[str, _t.Callable[[Lexer, Token], _t.Optional[Token]]]] = {}
-    _ignored_tokens: _t.ClassVar[set[str]] = set()
-    _remapping: _t.ClassVar[dict[str, dict[str, str]]] = {}
-    _delete: _t.ClassVar[list[str]] = []
-    _remap: _t.ClassVar[dict[tuple[str, _t.Any], _t.Any]] = {}
+    # fmt: off
+    _token_names:       _t.ClassVar[set[str]]                                                   = set()
+    _token_funcs:       _t.ClassVar[dict[str, _t.Callable[[Lexer, Token], _t.Optional[Token]]]] = {}
+    _ignored_tokens:    _t.ClassVar[set[str]]                                                   = set()
+    _remapping:         _t.ClassVar[dict[str, dict[str, str]]]                                  = {}
+    _delete:            _t.ClassVar[list[str]]                                                  = []
+    _remap:             _t.ClassVar[dict[tuple[str, _t.Any], _t.Any]]                           = {}
+    # fmt: on
 
     __state_stack: _t.Optional[list[type[Lexer]]] = None
     __set_state: _t.Optional[_t.Callable[[type[Lexer]], None]] = None
@@ -461,7 +460,7 @@ class Lexer(metaclass=LexerMeta):
 
         if self.__set_state:
             self.__set_state(cls)
-        self.__class__ = cls
+        self.__class__ = cls  # pyright: ignore [reportAttributeAccessIssue]
 
     def push_state(self, cls: type[Lexer]) -> None:
         """Push a new lexer state onto the stack."""

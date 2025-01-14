@@ -1,18 +1,12 @@
-# ruff: noqa: E402
-
 """Types for symbols that only exist during sly class creation, i.e. the  `@_` decorator.
 
-Extended Summary
-----------------
 Because the `_` decorator doesn't exist outside of the body of a `sly.Lexer` or `sly.Parser` subclass body, it cannot be
 imported at runtime. However, it can still provide typing and intellisense support if "fake" imported such that
 type-checkers and IDEs can see it but the Python runtime doesn't, e.g. within an `if typing.TYPE_CHECKING: ...` block.
+That's what this module provides.
 
-Raises
-------
-ImportError
-    If the module is imported at runtime. This is intentionally done by using `typing.type_check_only()`, which doesn't
-    exist at runtime.
+Importing this module at runtime will raise an ImportError. This is intentionally done by using
+`typing.type_check_only()`, which doesn't exist at runtime.
 """
 
 from __future__ import annotations
@@ -24,8 +18,8 @@ if not TYPE_CHECKING:
     msg = "This module cannot be imported at runtime; see docstring for more details."
     raise ImportError(msg, name=__spec__.name)
 
-from collections.abc import Callable
-from typing import Any, Final, Protocol, TypeVar, cast, type_check_only
+from collections.abc import Callable  # noqa: E402
+from typing import Any, Final, Protocol, TypeVar, cast, type_check_only  # noqa: E402
 
 
 __all__ = ("_",)

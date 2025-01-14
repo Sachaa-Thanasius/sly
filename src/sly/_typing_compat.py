@@ -1,9 +1,9 @@
 """Shim for typing- and annotation-related symbols to avoid runtime dependencies on `typing` or `typing-extensions`.
 
-Do not directly import annotation-related symbols from this module (e.g. `from ._typing_compat import Any`)! Doing so
-will trigger the module-level `__getattr__`, causing `typing` to get imported. Instead, import the module and use
-symbols via attribute access as needed (e.g. `from . import _typing_compat [as _t]`).
-To avoid those symbols being evaluated at runtime, which would also cause `typing` to get imported, make sure to put
+Warning: Do not directly import annotation-related symbols from this module (e.g. `from ._typing_compat import Any`)!
+Doing so will trigger the module-level `__getattr__`, causing `typing` to get imported. Instead, import the module and
+use symbols via attribute access as needed (e.g. `from . import _typing_compat [as _t]`). To avoid those symbols being
+evaluated at runtime, which would also cause `typing` to get imported, make sure to put
 `from __future__ import annotations` at the top of the module.
 """
 
@@ -14,10 +14,16 @@ import sys
 
 TYPE_CHECKING = False
 
-if TYPE_CHECKING:
-    from types import GenericAlias as _GenericAlias
-else:
-    _GenericAlias = type(list[int])
+
+class _PlaceholderMeta(type):
+    _source_module: str
+
+    def __init__(self, *args: object, **kwargs: object):
+        super().__init__(*args, **kwargs)
+        self.__doc__ = f"Placeholder for {self._source_module}.{self.__name__}."
+
+    def __repr__(self):
+        return f"<import placeholder for {self._source_module}.{self.__name__}>"
 
 
 __all__ = (
@@ -39,8 +45,9 @@ __all__ = (
     # Used at runtime.
     "TYPE_CHECKING",
     "cast",
-    # A typevar.
+    # Other.
     "CallableT",
+    "LoggerLike",
 )
 
 
@@ -73,13 +80,27 @@ def __getattr__(name: str, /) -> object:
         return symbol
 
     if name == "CallableT":
-        global Any, Callable, CallableT  # noqa: PLW0603
+        global CallableT  # noqa: PLW0603
 
         from collections.abc import Callable
         from typing import Any, TypeVar
 
         CallableT = TypeVar("CallableT", bound=Callable[..., Any])
         return CallableT
+
+    if name == "LoggerLike":
+        global LoggerLike  # noqa: PLW0603
+
+        from typing import Any, Protocol
+
+        class LoggerLike(Protocol):
+            def debug(self, msg: Any, *args: object, **kwargs: object) -> None: ...
+            def info(self, msg: Any, *args: object, **kwargs: object) -> None: ...
+            def warning(self, msg: Any, *args: object, **kwargs: object) -> None: ...
+            def error(self, msg: Any, *args: object, **kwargs: object) -> None: ...
+            def critical(self, msg: Any, *args: object, **kwargs: object) -> None: ...
+
+        return LoggerLike
 
     msg = f"module {__name__!r} has no attribute {name!r}"
     raise AttributeError(msg)
@@ -89,25 +110,22 @@ def __dir__() -> list[str]:
     return sorted(set(globals()).union(__all__))
 
 
-class _PlaceholderGenericAlias(_GenericAlias):
-    def __repr__(self):
-        return f"<import placeholder for {super().__repr__()}>"
+# TypeAlias: Below 3.10, create a placeholder.
+if TYPE_CHECKING:
+    from typing_extensions import TypeAlias
+elif sys.version_info < (3, 10):
+
+    class TypeAlias(metaclass=_PlaceholderMeta):
+        _source_module = "typing"
 
 
-class _PlaceholderMeta(type):
-    _source_module: str
+# Self: Below 3.11, create a placeholder.
+if TYPE_CHECKING:
+    from typing_extensions import Self
+elif sys.version_info < (3, 11):
 
-    def __init__(self, *args: object, **kwargs: object):
-        super().__init__(*args, **kwargs)
-        self.__doc__ = f"Placeholder for {self._source_module}.{self.__name__}."
-
-    def __repr__(self):
-        return f"<import placeholder for {self._source_module}.{self.__name__}>"
-
-
-class _PlaceholderGenericMeta(_PlaceholderMeta):  # pyright: ignore [reportUnusedClass] # Might be used yet.
-    def __getitem__(self, item: object) -> _PlaceholderGenericAlias:
-        return _PlaceholderGenericAlias(self, item)
+    class Self(metaclass=_PlaceholderMeta):
+        _source_module = "typing"
 
 
 # cast: Used at runtime.
@@ -117,21 +135,3 @@ else:
 
     def cast(typ: object, val: object) -> object:
         return val
-
-
-# TypeAlias: For 3.10+, import on demand in __getattr__. Otherwise, create a placeholder.
-if TYPE_CHECKING:
-    from typing_extensions import TypeAlias
-elif sys.version_info < (3, 10):
-
-    class TypeAlias(metaclass=_PlaceholderMeta):
-        _source_module = "typing"
-
-
-# Self: For 3.11+, import on demand in __getattr__. Otherwise, create a placeholder.
-if TYPE_CHECKING:
-    from typing_extensions import Self
-elif sys.version_info < (3, 11):
-
-    class Self(metaclass=_PlaceholderMeta):
-        _source_module = "typing"
