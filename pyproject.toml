@@ -33,7 +33,7 @@ Documentation = "https://sly.readthedocs.io/en/latest/"
 packages = ["src/sly"]
 
 
-# ---- Testing config
+# ---- Test config
 
 [[tool.hatch.envs.hatch-test.matrix]]
 python = ["3.9", "3.10", "3.11", "3.12"]
@@ -50,13 +50,14 @@ sly = ["src"]
 [tool.coverage.run]
 plugins = ["covdefaults"]
 source = ["sly", "tests"]
-omit = ["src/sly/types.py"]
+omit = ["src/sly/ast.py", "src/sly/docparse.py", "src/sly/types.py"]
 
 [tool.coverage.report]
+fail_under = 90
 exclude_lines = ["^\\s*(?:el)?if TYPE_CHECKING:$"]
 
 
-# ---- Linting config
+# ---- Linter config
 
 [tool.ruff]
 include = ["src/sly/*.py"]
@@ -147,7 +148,6 @@ unfixable = [
     "ERA", # Prevent unlikely erroneous deletion.
 ]
 
-
 [tool.ruff.lint.isort]
 lines-after-imports = 2
 combine-as-imports = true
@@ -164,26 +164,30 @@ keep-runtime-typing = true
     "F403",
     "F405",
 ]
-"tests/*.py" = [
+"tests/test_*.py" = [
     "RUF012", # Mutable class attributes.
     "F811",   # Redefining methods within Lexer/Parser subclasses is allowed because of metaclass hackery.
     "F821",   # Undefined names within Lexer/Parser subclasses are allowed because of metaclass hackery.
-    "T201",   # Allow printing.
-    "ANN201", # Unnecessary public function return annotations.
+    "T201",   # Printing.
+    "T203",   # Pretty-printing.
+    "ANN001", # Annotations for parameters.
+    "ANN201", # Annotations for public function returns.
+    "ANN202", # Annotations for private function returns.
 ]
 "example/**/*.py" = [
     # Refer to comments in the tests/*.py entry.
-    "RUF012",
+    "RUF012", # Mutable class attributes.
     "F811",
     "F821",
-    "T201",
-    "ANN201",
-    "ANN001", # Ignore missing parameter annotations as well.
-    "INP001", # Implicit namespace packages.
+    "T201",   # Printing.
+    "T203",   # Pretty-printing.
+    "ANN001", # Annotations for parameters.
+    "ANN201", # Annotations for public function returns.
+    "ANN202", # Annotations for private function returns.
 ]
 
 
-# ---- Type-checking config
+# ---- Type-checker config
 
 [tool.pyright]
 include = ["src/sly"]
@@ -192,11 +196,11 @@ pythonVersion = "3.9"
 pythonPlatform = "All"
 typeCheckingMode = "strict"
 
-reportPrivateUsage = "none"                    # We're the package; of course we're accessing internals.
-reportUnnecessaryIsInstance = "none"           # Verify user input.
+reportPrivateUsage = "none"                    # We're the library.
+reportUnnecessaryIsInstance = "information"    # Verify user input.
 reportUninitializedInstanceVariable = "none"   # Occasionally nice as a checkup, but otherwise noisy.
 reportCallInDefaultInitializer = "warning"
-reportImportCycles = "none"                    # Occasionally not a false positive.
+reportImportCycles = "information"             # Occasionally not a false positive.
 reportPropertyTypeMismatch = "error"
 reportShadowedImports = "error"
 reportUnnecessaryTypeIgnoreComment = "warning"

@@ -49,10 +49,11 @@ def unwrap(
     return func
 
 
+@_t.final
 class _Missing:
     __slots__ = ()
 
-    def __repr__(self) -> str:
+    def __repr__(self, /) -> str:
         return "<MISSING>"
 
 

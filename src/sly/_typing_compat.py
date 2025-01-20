@@ -20,9 +20,14 @@ class _PlaceholderMeta(type):
 
     def __init__(self, *args: object, **kwargs: object):
         super().__init__(*args, **kwargs)
+
+        if not hasattr(self, "_source_module"):
+            msg = "A placeholder must indicate the source of the original with a `_source_module` variable."
+            raise ValueError(msg)
+
         self.__doc__ = f"Placeholder for {self._source_module}.{self.__name__}."
 
-    def __repr__(self):
+    def __repr__(self, /):
         return f"<import placeholder for {self._source_module}.{self.__name__}>"
 
 
@@ -45,6 +50,7 @@ __all__ = (
     # Used at runtime.
     "TYPE_CHECKING",
     "cast",
+    "final",
     # Other.
     "CallableT",
     "LoggerLike",
@@ -52,7 +58,7 @@ __all__ = (
 
 
 def __getattr__(name: str, /) -> object:
-    # Save the imported symbols in the globals to avoid future imports.
+    # Save the imported symbols in the global namespace to avoid re-importing in the future.
 
     if name in {"Callable", "Collection", "Generator", "Iterator"}:
         global Callable, Collection, Generator, Iterator  # noqa: PLW0603
@@ -68,16 +74,19 @@ def __getattr__(name: str, /) -> object:
 
         return globals()[name]
 
-    if (
-        (name == "TypeAlias" and sys.version_info >= (3, 10))
-        or (name == "Self" and sys.version_info >= (3, 11))
-    ):  # fmt: skip
-        import typing
+    if name == "Self" and sys.version_info >= (3, 11):
+        global Self  # noqa: PLW0603
 
-        symbol = getattr(typing, name)
-        globals()[name] = symbol
+        from typing import Self
 
-        return symbol
+        return globals()[name]
+
+    if name == "TypeAlias" and sys.version_info >= (3, 10):
+        global TypeAlias  # noqa: PLW0603
+
+        from typing import TypeAlias
+
+        return globals()[name]
 
     if name == "CallableT":
         global CallableT  # noqa: PLW0603
@@ -135,3 +144,32 @@ else:
 
     def cast(typ: object, val: object) -> object:
         return val
+
+
+# final: Used at runtime.
+if TYPE_CHECKING:
+    from typing import final
+else:
+
+    def final(f: object) -> object:
+        # Skip the attributes silently if they are not writable.
+        # AttributeError happens if the object has __slots__ or a
+        # read-only property, TypeError if it's a builtin class.
+
+        try:
+            f.__final__ = True
+        except (AttributeError, TypeError):  # pragma: no cover
+            pass
+
+        if isinstance(f, type):
+
+            def __init_subclass__(cls: type) -> None:
+                msg = f"Subclassing disabled for {cls!r}."
+                raise RuntimeError(msg)
+
+            try:
+                f.__init_subclass__ = classmethod(__init_subclass__)
+            except (AttributeError, TypeError):  # pragma: no cover
+                pass
+
+        return f

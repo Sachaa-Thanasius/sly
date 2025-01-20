@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 _digit = "[0-9]"
 _hexadecimal_digit = "[0-9A-Fa-f]"
-_nondigit = "[_a-zA-Z]"
+_nondigit = "[a-zA-Z_]"
 
 _universal_character_name = f"\\u{_hexadecimal_digit}{{4}}|\\U{_hexadecimal_digit}{{8}}"
 
@@ -165,11 +165,11 @@ class C11Lexer(Lexer):
     }  # fmt: skip
 
     # Whitespace
-    ignore = r" \t\001\012\r"
+    ignore = " \t\v\f\r"
 
     @_(r"\n+")
     def ignore_newline(self, t: Token) -> None:
-        self.lineno += t.value.count("\n")
+        self.lineno += len(t.value)
 
     CONSTANT = "|".join(
         (
@@ -233,19 +233,18 @@ class C11Lexer(Lexer):
     TILDE                   = "~"
 
     # Delimiters
-    LBRACE                  = "{"
-    RBRACE                  = "}"
-    LBRACK                  = "["
-    RBRACK                  = "]"
+    LBRACE                  = r"\{"
+    RBRACE                  = r"\}"
+    LBRACK                  = r"\["
+    RBRACK                  = r"\]"
     LPAREN                  = r"\("
     RPAREN                  = r"\)"
     SEMICOLON               = ";"
     COMMA                   = ","
-    DOT                     = r"."
+    DOT                     = r"\."
 
     # Identifiers and keywords
     ID: TokenStr            = _identifier  # pyright: ignore [reportAssignmentType]
-
     ID["auto"]              = AUTO
     ID["break"]             = BREAK
     ID["case"]              = CASE

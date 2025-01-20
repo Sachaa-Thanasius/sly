@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any
 from sly import Lexer, Parser
 from sly.lex import Token
 
+
 if TYPE_CHECKING:
     from sly.types import _
 

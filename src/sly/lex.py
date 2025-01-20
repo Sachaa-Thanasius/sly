@@ -91,7 +91,7 @@ class LexerBuildError(Exception):
 
 
 # ============================================================================
-# region -------- Token Structures --------
+# region -------- Token structures --------
 # ============================================================================
 
 
@@ -135,12 +135,12 @@ class TokenStr(str):
         self.key = key
         self.remap = remap
 
-    def __setitem__(self, key: str, value: str) -> None:
+    def __setitem__(self, key: str, value: str, /) -> None:
         # Implementation of TOKEN[value] = NEWTOKEN
         if self.remap is not None:
             self.remap[(self.key, key)] = value
 
-    def __delitem__(self, key: str) -> None:
+    def __delitem__(self, key: str, /) -> None:
         # Implementation of del TOKEN[value]
         if self.remap is not None:
             self.remap[(self.key, key)] = self.key
@@ -293,10 +293,10 @@ class Lexer(metaclass=LexerMeta):
     _remapping:         _t.ClassVar[dict[str, dict[str, str]]]                                  = {}
     _delete:            _t.ClassVar[list[str]]                                                  = []
     _remap:             _t.ClassVar[dict[tuple[str, _t.Any], _t.Any]]                           = {}
-    # fmt: on
 
-    __state_stack: _t.Optional[list[type[Lexer]]] = None
-    __set_state: _t.Optional[_t.Callable[[type[Lexer]], None]] = None
+    __state_stack:      _t.Optional[list[type[Lexer]]]                                          = None
+    __set_state:        _t.Optional[_t.Callable[[type[Lexer]], None]]                           = None
+    # fmt: on
 
     def __init__(self) -> None:
         # ---- Public interface
@@ -451,24 +451,28 @@ class Lexer(metaclass=LexerMeta):
             msg = "literals must be specified as strings."
             raise LexerBuildError(msg)
 
-    def begin(self, cls: type[Lexer]) -> None:
+        if not all(len(lit) == 1 for lit in cls.literals):
+            msg = "literals must each only be a single character."
+            raise LexerBuildError(msg)
+
+    def begin(self, state: type[Lexer]) -> None:
         """Begin a new lexer state."""
 
-        if not isinstance(cls, LexerMeta):
+        if not isinstance(state, LexerMeta):
             msg = "state must be a subclass of Lexer."
             raise TypeError(msg)
 
         if self.__set_state:
-            self.__set_state(cls)
-        self.__class__ = cls  # pyright: ignore [reportAttributeAccessIssue]
+            self.__set_state(state)
+        self.__class__ = state  # pyright: ignore [reportAttributeAccessIssue]
 
-    def push_state(self, cls: type[Lexer]) -> None:
+    def push_state(self, state: type[Lexer]) -> None:
         """Push a new lexer state onto the stack."""
 
         if self.__state_stack is None:
             self.__state_stack = []
         self.__state_stack.append(type(self))
-        self.begin(cls)
+        self.begin(state)
 
     def pop_state(self) -> None:
         """Pop a lexer state from the stack."""
