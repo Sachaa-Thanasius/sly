@@ -100,25 +100,18 @@ class Token:
 
     __slots__ = ("type", "value", "lineno", "index", "end")
 
-    def __init__(self, *, lineno: int, index: int) -> None:
-        self.lineno = lineno
-        self.index = index
+    type: str
+    value: _t.Any
+    lineno: int
+    index: int
+    end: int
 
     def __repr__(self) -> str:
         return (
-            f"Token("
-            f"type={self.type!r}, value={self.value!r}, lineno={self.lineno!r}, index={self.index!r}, "
-            f"end={getattr(self, 'end', -1)}"
+            f"{self.__class__.__name__}("
+            f"type={self.type!r}, value={self.value!r}, lineno={self.lineno!r}, index={self.index!r}, end={self.end}"
             ")"
         )
-
-    def update(self, *, type: str, value: _t.Any, end: int = MISSING) -> None:  # noqa: A002
-        self.type = type
-        self.value = value
-
-        # end doesn't always get initialized.
-        if end is not MISSING:
-            self.end = end
 
 
 class TokenStr(str):
@@ -160,13 +153,7 @@ class _Before:
 # ============================================================================
 
 
-if TYPE_CHECKING:
-    _lexer_dict_base = dict[str, _t.Any]
-else:
-    _lexer_dict_base = dict
-
-
-class LexerMetaDict(_lexer_dict_base):
+class LexerMetaDict(dict[str, _t.Any] if TYPE_CHECKING else dict):
     """Special dictionary that prohibits duplicate definitions in lexer specifications."""
 
     def __init__(self) -> None:
@@ -197,13 +184,14 @@ class LexerMetaDict(_lexer_dict_base):
         self.delete.append(key)
         if key not in self and key.isupper():
             return None
+        else:
+            return super().__delitem__(key)
 
-        return super().__delitem__(key)
-
-    def __missing__(self, key: str) -> TokenStr:
+    def __missing__(self, key: str, /) -> TokenStr:
         if key.split("ignore_")[-1].isupper() and key[:1] != "_":
             return TokenStr(key, key, self.remap)
-        raise KeyError(key)
+        else:
+            raise KeyError(key)
 
 
 def _match_action_decorator(pattern: str, *extra: str) -> _t.Callable[[_t.CallableT], _t.CallableT]:
@@ -249,7 +237,7 @@ class LexerMeta(type):
         final_namespace = {str(key): (str(val) if isinstance(val, TokenStr) else val) for key, val in namespace.items()}
         return super().__new__(cls, name, bases, final_namespace, **kwds)
 
-    def __init__(self, name: str, bases: tuple[type, ...], namespace: LexerMetaDict, /, **kwds: object):
+    def __init__(self, name: str, bases: tuple[type, ...], namespace: LexerMetaDict, /, **kwds: object) -> None:
         super().__init__(name, bases, namespace, **kwds)
 
         # Attach various metadata to the class
@@ -534,21 +522,24 @@ class Lexer(metaclass=LexerMeta):
                 except IndexError:
                     return
 
-                tok = Token(lineno=lineno, index=index)
+                tok = Token()
+                tok.lineno, tok.index = (lineno, index)
+
                 if m := _master_re.match(text, index):
                     index = m.end()
-                    assert m.lastgroup  # The matched group will always have a name.
-                    tok.update(type=m.lastgroup, value=m.group(), end=index)
+                    assert m.lastgroup is not None, "The matched group should always have a name."
+                    tok.type, tok.value, tok.end = (m.lastgroup, m.group(), index)
 
                     if tok.type in _remapping:
                         tok.type = _remapping[tok.type].get(tok.value, tok.type)
 
                     if tok.type in _token_funcs:
-                        self.index = index
-                        self.lineno = lineno
+                        self.index, self.lineno = (index, lineno)
+
                         tok = _token_funcs[tok.type](self, tok)
-                        index = self.index
-                        lineno = self.lineno
+
+                        index, lineno = (self.index, self.lineno)
+
                         if not tok:
                             continue
 
@@ -561,21 +552,20 @@ class Lexer(metaclass=LexerMeta):
                     # No match, see if the character is in literals
                     if text[index] in _literals:
                         value = text[index]
-                        tok.update(type=value, value=value, end=index + 1)
+                        tok.type, tok.value, tok.end = (value, value, index + 1)
                         index += 1
                         yield tok
                     else:
                         # A lexing error
-                        self.index = index
-                        self.lineno = lineno
-                        tok.update(type="ERROR", value=text[index:])
+                        self.index, self.lineno = index, lineno
+
+                        tok.type, tok.value = ("ERROR", text[index:])
                         tok = self.error(tok)
                         if tok is not None:
                             tok.end = self.index
                             yield tok
 
-                        index = self.index
-                        lineno = self.lineno
+                        index, lineno = self.index, self.lineno
 
         # Set the final state of the lexer before exiting (even if exception)
         finally:
@@ -584,7 +574,7 @@ class Lexer(metaclass=LexerMeta):
             self.lineno = lineno
 
     def error(self, t: Token) -> _t.Optional[Token]:
-        """Default implementation of the error handler. May be changed in subclasses."""
+        """Default implementation of the error handler. May be overridden in subclasses."""
 
         msg = f"Illegal character {t.value[0]!r} at index {self.index}."
         raise LexError(msg, t.value, self.index)

@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 #   - Lexer inheritance
 #       - `before` usage
 #       - deletion of tokens in subclasses
-#
 
 
 class TestBuildErrors:

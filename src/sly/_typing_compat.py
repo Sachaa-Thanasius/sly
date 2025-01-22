@@ -152,24 +152,12 @@ if TYPE_CHECKING:
 else:
 
     def final(f: object) -> object:
-        # Skip the attributes silently if they are not writable.
-        # AttributeError happens if the object has __slots__ or a
-        # read-only property, TypeError if it's a builtin class.
-
         try:
             f.__final__ = True
         except (AttributeError, TypeError):  # pragma: no cover
+            # Skip the attributes silently if they are not writable.
+            # AttributeError happens if the object has __slots__ or a
+            # read-only property, TypeError if it's a builtin class.
             pass
-
-        if isinstance(f, type):
-
-            def __init_subclass__(cls: type) -> None:
-                msg = f"Subclassing disabled for {cls!r}."
-                raise RuntimeError(msg)
-
-            try:
-                f.__init_subclass__ = classmethod(__init_subclass__)
-            except (AttributeError, TypeError):  # pragma: no cover
-                pass
 
         return f

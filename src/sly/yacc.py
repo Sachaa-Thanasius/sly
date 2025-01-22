@@ -38,7 +38,8 @@ from __future__ import annotations
 
 import sys
 import threading
-from collections import defaultdict
+from collections import Counter, defaultdict
+from itertools import count
 
 from . import _typing_compat as _t
 from ._util import MISSING, unwrap as inspect_unwrap
@@ -49,18 +50,6 @@ TYPE_CHECKING = False
 
 
 __all__ = ("Parser",)
-
-
-# ============================================================================
-# region -------- User configurable parameters --------
-#
-# Change these to modify the default behavior of yacc (if you wish).
-# Move these parameters to the Yacc class itself.
-# ============================================================================
-
-MAXINT: int = sys.maxsize  # TODO: Somehow avoid this global state.
-
-# endregion
 
 
 class YaccError(Exception):
@@ -107,7 +96,7 @@ class YaccSymbol:
     index: int
         Starting lex position. May not exist.
     end: int | None
-        May not exist.
+        Ending lex position. May not exist.
 
     Notes
     -----
@@ -123,7 +112,7 @@ class YaccSymbol:
         end: _t.Optional[int]
 
     def __init__(self, *, type: str, value: _t.Any = MISSING) -> None:  # noqa: A002
-        self.type = type
+        self.type: str = type
         if value is not MISSING:
             self.value = value
 
@@ -151,12 +140,7 @@ class YaccProduction:
 
     @property
     def lineno(self) -> int:
-        """Get the line number of a given item.
-
-        Returns
-        -------
-        lineno: int
-            The line number of the item.
+        """`int`: The line number of the given item.
 
         Raises
         ------
@@ -303,15 +287,14 @@ class Production:
 
         # Create a name mapping
         # First determine (in advance) if there are duplicate names
-        namecount: defaultdict[str, int] = defaultdict(int)
+        namecount: Counter[str] = Counter()
         for key in self.prod:
             namecount[key] += 1
             if key in _name_aliases:
-                for k in _name_aliases[key]:
-                    namecount[k] += 1
+                namecount.update(_name_aliases[key])
 
         # Now, walk through the names and generate accessor functions
-        nameuse: defaultdict[str, int] = defaultdict(int)
+        nameuse: Counter[str] = Counter()
         namemap: dict[str, _t.Callable[[list[YaccSymbol]], object]] = {}
         for index, key in enumerate(self.prod):
             if namecount[key] > 1:
@@ -327,12 +310,15 @@ class Production:
                         nameuse[alias] += 1
                     else:
                         k = alias
+
                     # The value is either a list (for repetition) or a tuple for optional
-                    namemap[k] = (
-                        lambda s, i=index, n=n: ([x[n] for x in s[i].value])
-                        if isinstance(s[i].value, list)
-                        else s[i].value[n]
-                    )
+                    def _accessor(s: list[YaccSymbol], i: int = index, n: int = n) -> object:
+                        if isinstance(s[i].value, list):
+                            return [x[n] for x in s[i].value]
+                        else:
+                            return s[i].value[n]
+
+                    namemap[k] = _accessor
 
         self.namemap = namemap
 
@@ -354,7 +340,7 @@ class Production:
         return s
 
     def __repr__(self) -> str:
-        return f"Production({self})"
+        return f"{self.__class__.__name__}({self})"
 
     def __len__(self) -> int:
         return len(self.prod)
@@ -362,30 +348,32 @@ class Production:
     def __getitem__(self, index: int, /) -> str:
         return self.prod[index]
 
-    def lr_item(self, n: int) -> _t.Optional[LRItem]:
+    def lr_item(self, n: int, prodnames: dict[str, list[Production]]) -> _t.Optional[LRItem]:
         """Return the nth lr_item from the production (or None if at the end)."""
 
         if n > len(self.prod):
             return None
+
         p = LRItem(self, n)
 
         # Precompute the list of productions immediately following.
-        # NOTE: Prodnames isn't global, so this doesn't seem possible. Leaving it just in case.
-        p.lr_after = []
+        try:
+            p.lr_after = prodnames[p.prod[n + 1]]
+        except (IndexError, KeyError):
+            p.lr_after = []
 
         try:
             p.lr_before = p.prod[n - 1]
         except IndexError:
             p.lr_before = None
+
         return p
 
 
 class LRItem:
-    """This class represents a specific stage of parsing a production rule, e.g. ``expr : expr . PLUS term``.
+    """This class represents a specific stage of parsing a production rule.
 
-    Extended Summary
-    ----------------
-    In the example given in the short summary, the "." represents the current location of the parse.
+    For example, ``expr : expr . PLUS term``, where the "." represents the current location of the parse.
 
     Attributes
     ----------
@@ -398,7 +386,7 @@ class LRItem:
     lr_next: LRItem | None
         Next LR item.
 
-        For instance, f we are ``expr -> expr . PLUS term``, then lr_next refers to ``expr -> expr PLUS . term``.
+        For instance, if we are ``expr -> expr . PLUS term``, then lr_next refers to ``expr -> expr PLUS . term``.
     lr_index: int
         LR item index (location of the ".") in the prod list.
     lookaheads: dict[int, list[str]]
@@ -433,7 +421,7 @@ class LRItem:
         return s
 
     def __repr__(self) -> str:
-        return f"LRItem({self})"
+        return f"{self.__class__.__name__}({self})"
 
 
 class GrammarError(YaccError):
@@ -924,29 +912,13 @@ class Grammar:
 
         for p in self.Productions:
             lastlri = p
-            i = 0
             lr_items: list[LRItem] = []
-            while True:
-                if i > len(p):
-                    lri = None
-                else:
-                    lri = LRItem(p, i)
-                    # Precompute the list of productions immediately following
-                    try:
-                        lri.lr_after = self.Prodnames[lri.prod[i + 1]]
-                    except (IndexError, KeyError):
-                        lri.lr_after = []
-                    try:
-                        lri.lr_before = lri.prod[i - 1]
-                    except IndexError:
-                        lri.lr_before = None
-
-                lastlri.lr_next = lri
+            for i in count():
+                lastlri.lr_next = lri = p.lr_item(i, self.Prodnames)
                 if not lri:
                     break
                 lr_items.append(lri)
                 lastlri = lri
-                i += 1
             p.lr_items = lr_items
 
     def __str__(self) -> str:
@@ -995,7 +967,12 @@ _RelationFunction: _t.TypeAlias = "_t.Callable[[tuple[int, str]], list[tuple[int
 _SetValuedFunction: _t.TypeAlias = "_t.Callable[[tuple[int, str]], list[str]]"
 
 
-def digraph(X: list[tuple[int, str]], R: _RelationFunction, FP: _SetValuedFunction) -> dict[tuple[int, str], list[str]]:
+def digraph(
+    X: list[tuple[int, str]],
+    R: _RelationFunction,
+    FP: _SetValuedFunction,
+    _max_int: int,
+) -> dict[tuple[int, str], list[str]]:
     """First helper for computing set valued functions of the form ``F(x) = F'(x) U U{F(y) | x R y}``.
 
     This is used to compute the values of Read() sets as well as FOLLOW sets in LALR(1) generation.
@@ -1019,7 +996,7 @@ def digraph(X: list[tuple[int, str]], R: _RelationFunction, FP: _SetValuedFuncti
     F: dict[tuple[int, str], list[str]] = {}
     for x in X:
         if N[x] == 0:
-            traverse(x, N, stack, F, X, R, FP)
+            traverse(x, N, stack, F, X, R, FP, _max_int)
     return F
 
 
@@ -1031,6 +1008,7 @@ def traverse(
     X: list[tuple[int, str]],
     R: _RelationFunction,
     FP: _SetValuedFunction,
+    _max_int: int,
 ) -> None:
     """Second helper for computing set valued functions of the form ``F(x) = F'(x) U U{F(y) | x R y}``.
 
@@ -1049,17 +1027,17 @@ def traverse(
     rel = R(x)  # Get y's related to x
     for y in rel:
         if N[y] == 0:
-            traverse(y, N, stack, F, X, R, FP)
+            traverse(y, N, stack, F, X, R, FP, _max_int)
         N[x] = min(N[x], N[y])
         for a in F.get(y, []):
             if a not in F[x]:
                 F[x].append(a)
     if N[x] == d:
-        N[stack[-1]] = MAXINT
+        N[stack[-1]] = _max_int
         F[stack[-1]] = F[x]
         element = stack.pop()
         while element != x:
-            N[stack[-1]] = MAXINT
+            N[stack[-1]] = _max_int
             F[stack[-1]] = F[x]
             element = stack.pop()
 
@@ -1071,8 +1049,9 @@ class LALRError(YaccError):
 class LRTable:
     """This class implements the LR table generation algorithm. There are no public methods except for `write()`."""
 
-    def __init__(self, grammar: Grammar) -> None:
+    def __init__(self, grammar: Grammar, _max_int: int) -> None:
         self.grammar = grammar
+        self._max_int: int = _max_int
 
         # Internal attributes
         self.lr_action: dict[int, dict[str, int]] = {}  # Action table
@@ -1192,17 +1171,13 @@ class LRTable:
         self.lr0_cidhash.update({id(I): i for i, I in enumerate(C)})
 
         # Loop over the items in C and each grammar symbols
-        i = 0
-        while i < len(C):
-            I = C[i]
-            i += 1
-
+        for I in C:
             # Collect all of the symbols that could possibly be in the goto(I,X) sets
-            asyms: dict[str, None] = dict.fromkeys([s for ii in I for s in ii.usyms])
+            asyms = {s: None for ii in I for s in ii.usyms}
 
             for x in asyms:
                 g = self.lr0_goto(I, x)
-                if not g or id(g) in self.lr0_cidhash:
+                if not g or (id(g) in self.lr0_cidhash):
                     continue
                 self.lr0_cidhash[id(g)] = len(C)
                 C.append(g)
@@ -1237,13 +1212,7 @@ class LRTable:
         num_nullable = 0
         while True:
             for p in self.grammar.Productions[1:]:
-                if p.len == 0:
-                    nullable.add(p.name)
-                    continue
-                for t in p.prod:
-                    if t not in nullable:
-                        break
-                else:
+                if p.len == 0 or all(t in nullable for t in p.prod):
                     nullable.add(p.name)
             if len(nullable) == num_nullable:
                 break
@@ -1270,7 +1239,7 @@ class LRTable:
         transitions: list[tuple[int, str]] = []
         for stateno, state in enumerate(C):
             for p in state:
-                if p.lr_index < p.len - 1:
+                if p.lr_index < (p.len - 1):
                     t = (stateno, p.prod[p.lr_index + 1])
                     if t[1] in self.grammar.Nonterminals and t not in transitions:
                         transitions.append(t)
@@ -1412,7 +1381,7 @@ class LRTable:
                     while i < r.lr_index:
                         if r.prod[i] != p.prod[i + 1]:
                             break
-                        i = i + 1
+                        i += 1
                     else:
                         lookb.append((j, r))
             for i in includes:
@@ -1452,7 +1421,7 @@ class LRTable:
         def R(x: tuple[int, str]) -> list[tuple[int, str]]:
             return self.reads_relation(C, x, nullable)
 
-        F = digraph(ntrans, R, FP)
+        F = digraph(ntrans, R, FP, self._max_int)
         return F  # noqa: RET504
 
     def compute_follow_sets(
@@ -1462,7 +1431,7 @@ class LRTable:
         inclsets: dict[tuple[int, str], list[tuple[int, str]]],
     ) -> dict[tuple[int, str], list[str]]:
         """Given a set of LR(0) items, a set of non-terminal transitions, a readset, and an include set, this function
-        computes the follow sets: Follow(p,A) = Read(p,A) U U {Follow(p',B) | (p,A) INCLUDES (p',B)}.
+        computes the follow sets: ``Follow(p,A) = Read(p,A) U U {Follow(p',B) | (p,A) INCLUDES (p',B)}``.
 
         Parameters
         ----------
@@ -1485,7 +1454,7 @@ class LRTable:
         def R(x: tuple[int, str]) -> list[tuple[int, str]]:
             return inclsets.get(x, [])
 
-        F = digraph(ntrans, R, FP)
+        F = digraph(ntrans, R, FP, self._max_int)
         return F  # noqa: RET504
 
     def add_lookaheads(
@@ -1686,7 +1655,7 @@ class LRTable:
             descrip.append("")
 
             # Construct the goto table for this state
-            nkeys: dict[str, None] = dict.fromkeys(s for ii in I for s in ii.usyms if s in self.grammar.Nonterminals)
+            nkeys = {s: None for ii in I for s in ii.usyms if s in self.grammar.Nonterminals}
 
             for n in nkeys:
                 g = self.lr0_goto(I, n)
@@ -1818,6 +1787,9 @@ def _replace_ebnf_choice(syms: list[str]) -> tuple[list[str], list[_RawGrammarRu
     return syms, newprods
 
 
+# TODO: Eliminate this global state, or at least isolate it for each Parser subclass.
+
+
 _gencount = 0
 """Generate grammar rules for repeated items."""
 
@@ -1842,8 +1814,9 @@ def _sanitize_symbols(symbols: list[str]) -> _t.Generator[str]:
 
 
 def _generate_repeat_rules(symbols: list[str]) -> tuple[str, list[_RawGrammarRule]]:
-    """Based on a given list of grammar symbols [ symbols ], generate code corresponding to these grammar
-    construction::
+    """Based on a given list of grammar symbols, generate code corresponding to these grammar construction:
+
+    .. code-block:: python
 
         @('repeat : many')
         def repeat(self, p):
@@ -1913,7 +1886,9 @@ def _generate_repeat_rules(symbols: list[str]) -> tuple[str, list[_RawGrammarRul
 
 def _generate_optional_rules(symbols: list[str]) -> tuple[str, list[_RawGrammarRule]]:
     """Based on a given list of grammar symbols [ symbols ], generate code corresponding to these grammar
-    construction::
+    construction:
+
+    .. code-block:: python
 
         @('optional : symbols')
         def optional(self, p):
@@ -1955,7 +1930,9 @@ def _generate_optional_rules(symbols: list[str]) -> tuple[str, list[_RawGrammarR
 
 def _generate_choice_rules(symbols: list[str]) -> tuple[str, list[_RawGrammarRule]]:
     """Based on a given list of grammar symbols such as [ 'PLUS', 'MINUS' ], generate code corresponding to the
-    following construction::
+    following construction:
+
+    .. code-block:: python
 
         @('PLUS', 'MINUS')
         def choice(self, p):
@@ -1989,13 +1966,7 @@ def _generate_choice_rules(symbols: list[str]) -> tuple[str, list[_RawGrammarRul
 # ============================================================================
 
 
-if TYPE_CHECKING:
-    _parser_dict_base = dict[str, _t.Any]
-else:
-    _parser_dict_base = dict
-
-
-class ParserMetaDict(_parser_dict_base):
+class ParserMetaDict(dict[str, _t.Any] if TYPE_CHECKING else dict):
     """Special dictionary that allows decorated grammar rule functions to be overloaded."""
 
     def __setitem__(self, key: str, value: _t.Any, /) -> None:
@@ -2078,7 +2049,10 @@ class Parser(metaclass=ParserMeta):
     """Whether position information is automatically tracked."""
 
     error_count: _t.ClassVar[int] = 3
-    """The number of symbols that must be shifted to leave recovery mode. Yacc config knob."""
+    """Yacc config knob: The number of symbols that must be shifted to leave recovery mode."""
+
+    max_int: _t.ClassVar[int] = sys.maxsize
+    """Yacc config knob."""
 
     def __init__(self) -> None:
         # ---- Public interface
@@ -2217,12 +2191,11 @@ class Parser(metaclass=ParserMeta):
 
         if len(undefined_symbols) == 0:
             infinite = grammar.infinite_cycles()
-            for inf in infinite:
-                errors += f"Infinite recursion detected for symbol {inf!r}\n"
+            errors.extend(f"Infinite recursion detected for symbol {inf!r}\n" for inf in infinite)
 
         unused_prec = grammar.unused_precedence()
         for term, assoc in unused_prec:
-            errors += f"Precedence rule {assoc!r} defined for unknown symbol {term!r}\n"
+            errors.append(f"Precedence rule {assoc!r} defined for unknown symbol {term!r}\n")
 
         cls._grammar = grammar
         if errors:
@@ -2233,7 +2206,7 @@ class Parser(metaclass=ParserMeta):
     def __build_lrtables(cls) -> bool:
         """Build the LR Parsing tables from the grammar."""
 
-        lrtable = LRTable(cls._grammar)
+        lrtable = LRTable(cls._grammar, cls.max_int)
         num_sr = len(lrtable.sr_conflicts)
 
         # Report shift/reduce and reduce/reduce conflicts
@@ -2328,14 +2301,22 @@ class Parser(metaclass=ParserMeta):
     def parse(self, tokens: _t.Iterator[Token]) -> _t.Any:
         """Parse the given input tokens."""
 
-        self.lookahead = None  # Current lookahead symbol
-        lookaheadstack: list[_t.Any] = []  # Stack of lookahead symbols
-        actions = self._lrtable.lr_action  # Local reference to action table (to avoid lookup on self.)
-        goto = self._lrtable.lr_goto  # Local reference to goto table (to avoid lookup on self.)
-        prod = self._grammar.Productions  # Local reference to production list (to avoid lookup on self.)
-        defaulted_states = self._lrtable.defaulted_states  # Local reference to defaulted states
-        pslice = YaccProduction(None)  # Production object passed to grammar rules
-        errorcount = 0  # Used during error recovery
+        #: Current lookahead symbol
+        self.lookahead = None
+        #: Stack of lookahead symbols
+        lookaheadstack: list[_t.Any] = []
+        #: Local reference to action table (to avoid lookup on self.)
+        actions = self._lrtable.lr_action
+        #: Local reference to goto table (to avoid lookup on self.)
+        goto = self._lrtable.lr_goto
+        #: Local reference to production list (to avoid lookup on self.)
+        prod = self._grammar.Productions
+        #: Local reference to defaulted states
+        defaulted_states = self._lrtable.defaulted_states
+        #: Production object passed to grammar rules
+        pslice = YaccProduction(None)
+        #: Used during error recovery
+        errorcount = 0
 
         # Set up the state and symbol stacks
         self.given_tokens = tokens
@@ -2515,11 +2496,28 @@ class Parser(metaclass=ParserMeta):
             msg = "sly: internal parser error!!!\n"
             raise RuntimeError(msg)
 
-    # Return position tracking information
     def line_position(self, value: object) -> _t.Optional[int]:
+        """Get the line number of any object returned by one of the various methods in the parser definition.
+
+        Typically, it would be a AST node.
+
+        Notes
+        -----
+        The parser tracks the data using the value of id(value).
+        """
+
         return self._line_positions[id(value)]
 
     def index_position(self, value: object) -> tuple[_t.Optional[int], _t.Optional[int]]:
+        """Get a (start, end) index pair of any object returned by one of the various methods in the parser definition.
+
+        Typically, it would be a AST node.
+
+        Notes
+        -----
+        The parser tracks the data using the value of id(value).
+        """
+
         return self._index_positions[id(value)]
 
 

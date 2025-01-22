@@ -3,6 +3,12 @@
 from sly import Lexer, Parser
 
 
+TYPE_CHECKING = False
+
+if TYPE_CHECKING:
+    from sly.types import _
+
+
 class CalcLexer(Lexer):
     tokens = {NAME, NUMBER, PLUS, TIMES, MINUS, DIVIDE, ASSIGN, LPAREN, RPAREN}
     ignore = " \t"

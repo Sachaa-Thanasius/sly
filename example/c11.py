@@ -16,10 +16,10 @@ _digit = "[0-9]"
 _hexadecimal_digit = "[0-9A-Fa-f]"
 _nondigit = "[a-zA-Z_]"
 
-_universal_character_name = f"\\u{_hexadecimal_digit}{{4}}|\\U{_hexadecimal_digit}{{8}}"
+_universal_character_name = rf"\\u{_hexadecimal_digit}{{4}}|\\U{_hexadecimal_digit}{{8}}"
 
-_identifier_nondigit = f"{_nondigit}|{_universal_character_name}"
-_identifier = f"{_identifier_nondigit}({_identifier_nondigit}|{_digit})*"
+_identifier_nondigit = f"{_nondigit}|({_universal_character_name})"
+_identifier = f"({_identifier_nondigit})(({_identifier_nondigit})|{_digit})*"
 
 # endregion ----
 
@@ -41,17 +41,17 @@ _long_long_suffix = "ll|LL"
 _integer_suffix = "|".join(
     (
         f"({_unsigned_suffix}{_long_suffix}?)",
-        f"({_unsigned_suffix}{_long_long_suffix})",
+        f"({_unsigned_suffix}({_long_long_suffix}))",
         f"({_long_suffix}{_unsigned_suffix}?)",
-        f"({_long_long_suffix}{_unsigned_suffix}?)",
+        f"(({_long_long_suffix}){_unsigned_suffix}?)",
     )
 )
 
 _integer_constant = "|".join(
     (
-        f"({_decimal_constant}{_integer_suffix}?)",
-        f"({_octal_constant}{_integer_suffix}?)",
-        f"({_hexadecimal_constant}{_integer_suffix}?)",
+        f"({_decimal_constant}({_integer_suffix})?)",
+        f"({_octal_constant}({_integer_suffix})?)",
+        f"({_hexadecimal_constant}({_integer_suffix})?)",
     )
 )
 
@@ -74,7 +74,7 @@ _fractional_constant = "|".join(
 _exponent_part = f"[eE]{_sign}?{_digit_sequence}"
 _decimal_floating_constant = "|".join(
     (
-        f"({_fractional_constant}{_exponent_part}?{_floating_suffix}?)",
+        f"(({_fractional_constant}){_exponent_part}?{_floating_suffix}?)",
         f"({_digit_sequence}{_exponent_part}{_floating_suffix}?)",
     )
 )
@@ -82,14 +82,14 @@ _decimal_floating_constant = "|".join(
 _hexadecimal_digit_sequence = f"{_hexadecimal_digit}+"
 _hexadecimal_fractional_constant = "|".join(
     (
-        rf"({_hexadecimal_digit_sequence}?\.{_hexadecimal_digit_sequence})",
+        rf"(({_hexadecimal_digit_sequence})?\.{_hexadecimal_digit_sequence})",
         rf"({_hexadecimal_digit_sequence}\.)",
     )
 )
 _binary_exponent_part = f"[pP]{_sign}?{_digit_sequence}"
 _hexadecimal_floating_constant = "|".join(
     (
-        f"({_hexadecimal_prefix}{_hexadecimal_fractional_constant}{_binary_exponent_part}{_floating_suffix}?)",
+        f"({_hexadecimal_prefix}({_hexadecimal_fractional_constant})({_binary_exponent_part}){_floating_suffix}?)",
         f"({_hexadecimal_prefix}{_hexadecimal_digit_sequence}{_binary_exponent_part}{_floating_suffix}?)",
     )
 )
@@ -107,8 +107,8 @@ _preprocessing_number = r"\.?[0-9]([0-9A-Za-z_\.]|[eEpP][+-])*"
 # region ---- Character and string constants
 
 _simple_escape_sequence = r"""\\['"?\\abfnrtv]"""
-_octal_escape_sequence = f"\\({_octal_digit}{{1,3}})"
-_hexadecimal_escape_sequence = f"\\x{_hexadecimal_digit}+"
+_octal_escape_sequence = rf"\\({_octal_digit}{{1,3}})"
+_hexadecimal_escape_sequence = rf"\\x{_hexadecimal_digit}+"
 _escape_sequence = "|".join(
     (
         f"({_simple_escape_sequence})",
@@ -200,7 +200,7 @@ class C11Lexer(Lexer):
     MOD_ASSIGN              = "%="
     OR_ASSIGN               = r"\|="
     AND_ASSIGN              = "&="
-    XOR_ASSIGN              = "^="
+    XOR_ASSIGN              = r"\^="
     LSHIFT_ASSIGN           = "<<="
     RSHIFT_ASSIGN           = ">>="
 
@@ -227,7 +227,7 @@ class C11Lexer(Lexer):
     BARBAR                  = r"\|\|"
     AND                     = "&"
     BAR                     = r"\|"
-    CARET                   = "^"
+    CARET                   = r"\^"
     QUESTION                = r"\?"
     COLON                   = ":"
     TILDE                   = "~"

@@ -196,11 +196,13 @@ pythonVersion = "3.9"
 pythonPlatform = "All"
 typeCheckingMode = "strict"
 
+defineConstant = { "TYPE_CHECKING" = true }
+
 reportPrivateUsage = "none"                    # We're the library.
 reportUnnecessaryIsInstance = "information"    # Verify user input.
 reportUninitializedInstanceVariable = "none"   # Occasionally nice as a checkup, but otherwise noisy.
 reportCallInDefaultInitializer = "warning"
-reportImportCycles = "information"             # Occasionally not a false positive.
+reportImportCycles = "none"                    # Occasionally not a false positive.
 reportPropertyTypeMismatch = "error"
 reportShadowedImports = "error"
 reportUnnecessaryTypeIgnoreComment = "warning"
