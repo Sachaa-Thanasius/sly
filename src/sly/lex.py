@@ -106,7 +106,14 @@ class Token:
     index: int
     end: int
 
-    def __repr__(self) -> str:
+    def __init__(self, type: str, value: _t.Any, lineno: int, index: int, end: int = -1, /):  # noqa: A002
+        self.type = type
+        self.value = value
+        self.lineno = lineno
+        self.index = index
+        self.end = end
+
+    def __repr__(self, /):
         return (
             f"{self.__class__.__name__}("
             f"type={self.type!r}, value={self.value!r}, lineno={self.lineno!r}, index={self.index!r}, end={self.end}"
@@ -203,7 +210,7 @@ def _match_action_decorator(pattern: str, *extra: str) -> _t.Callable[[_t.Callab
 
         # Runtime attribute assignment.
         if old_pattern is not MISSING:
-            func.pattern = f"{pattern}|{old_pattern}"  # pyright: ignore [reportFunctionMemberAccess]
+            func.pattern = f"({pattern})|({old_pattern})"  # pyright: ignore [reportFunctionMemberAccess]
         else:
             func.pattern = pattern  # pyright: ignore [reportFunctionMemberAccess]
         return func
@@ -262,7 +269,7 @@ class Lexer(metaclass=LexerMeta):
 
     # ---- Public class attributes.
     tokens: _t.ClassVar[set[str]] = set()
-    """Set of token names. This is always required."""
+    """Set of token names. Defining this is required."""
 
     literals: _t.ClassVar[set[str]] = set()
     """Characters serving as tokens that are always returned "as is"."""
@@ -275,15 +282,15 @@ class Lexer(metaclass=LexerMeta):
 
     # ---- Internal attributes
     # fmt: off
-    _token_names:       _t.ClassVar[set[str]]                                                   = set()
-    _token_funcs:       _t.ClassVar[dict[str, _t.Callable[[Lexer, Token], _t.Optional[Token]]]] = {}
-    _ignored_tokens:    _t.ClassVar[set[str]]                                                   = set()
-    _remapping:         _t.ClassVar[dict[str, dict[str, str]]]                                  = {}
-    _delete:            _t.ClassVar[list[str]]                                                  = []
-    _remap:             _t.ClassVar[dict[tuple[str, _t.Any], _t.Any]]                           = {}
+    _token_names:       _t.ClassVar[set[str]]                           = set()
+    _token_funcs:       _t.ClassVar[dict[str, _TokenMatchAction]]       = {}
+    _ignored_tokens:    _t.ClassVar[set[str]]                           = set()
+    _remapping:         _t.ClassVar[dict[str, dict[str, str]]]          = {}
+    _delete:            _t.ClassVar[list[str]]                          = []
+    _remap:             _t.ClassVar[dict[tuple[str, _t.Any], _t.Any]]   = {}
 
-    __state_stack:      _t.Optional[list[type[Lexer]]]                                          = None
-    __set_state:        _t.Optional[_t.Callable[[type[Lexer]], None]]                           = None
+    __state_stack:      _t.Optional[list[type[Lexer]]]                  = None
+    __set_state:        _t.Optional[_t.Callable[[type[Lexer]], None]]   = None
     # fmt: on
 
     def __init__(self) -> None:
@@ -292,7 +299,7 @@ class Lexer(metaclass=LexerMeta):
         self.index: int = -1
         self.lineno: int = -1
 
-        # ---- Internal backtracking-related functions
+        # ---- Backtracking-related functions
         self.mark: _t.Callable[[], None] = MISSING
         self.accept: _t.Callable[[], None] = MISSING
         self.reject: _t.Callable[[], None] = MISSING
@@ -471,12 +478,14 @@ class Lexer(metaclass=LexerMeta):
     def tokenize(self, text: str, lineno: int = 1, index: int = 0) -> _t.Generator[Token]:
         """Tokenize the given text."""
 
-        _ignored_tokens: set[str] = MISSING
-        _master_re: re.Pattern[str] = MISSING
-        _ignore: str = MISSING
-        _token_funcs: dict[str, _t.Callable[[Lexer, Token], _t.Optional[Token]]] = MISSING
-        _literals: set[str] = MISSING
-        _remapping: dict[str, dict[str, str]] = MISSING
+        # fmt: off
+        _ignored_tokens:    set[str]                        = MISSING
+        _master_re:         re.Pattern[str]                 = MISSING
+        _ignore:            str                             = MISSING
+        _token_funcs:       dict[str, _TokenMatchAction]    = MISSING
+        _literals:          set[str]                        = MISSING
+        _remapping:         dict[str, dict[str, str]]       = MISSING
+        # fmt: on
 
         # ---- Support for state changes
         def _set_state(cls: type[Lexer]) -> None:
@@ -522,22 +531,19 @@ class Lexer(metaclass=LexerMeta):
                 except IndexError:
                     return
 
-                tok = Token()
-                tok.lineno, tok.index = (lineno, index)
-
+                # Case 1: Found a match.
                 if m := _master_re.match(text, index):
-                    index = m.end()
-                    assert m.lastgroup is not None, "The matched group should always have a name."
-                    tok.type, tok.value, tok.end = (m.lastgroup, m.group(), index)
+                    assert m.lastgroup is not None, "There should always be a matched named group."
+
+                    tok = Token(m.lastgroup, m.group(), lineno, index, m.end())
+                    index = tok.end
 
                     if tok.type in _remapping:
                         tok.type = _remapping[tok.type].get(tok.value, tok.type)
 
                     if tok.type in _token_funcs:
                         self.index, self.lineno = (index, lineno)
-
                         tok = _token_funcs[tok.type](self, tok)
-
                         index, lineno = (self.index, self.lineno)
 
                         if not tok:
@@ -548,24 +554,23 @@ class Lexer(metaclass=LexerMeta):
 
                     yield tok
 
+                # Case 2: No match, see if the character is in literals.
+                elif (value := text[index]) in _literals:
+                    tok = Token(value, value, lineno, index, index + 1)
+                    index += 1
+                    yield tok
+
+                # Case 3: A lexing error.
                 else:
-                    # No match, see if the character is in literals
-                    if text[index] in _literals:
-                        value = text[index]
-                        tok.type, tok.value, tok.end = (value, value, index + 1)
-                        index += 1
+                    self.index, self.lineno = (index, lineno)
+
+                    tok = Token("ERROR", text[index:], lineno, index)
+                    tok = self.error(tok)
+                    if tok is not None:
+                        tok.end = self.index
                         yield tok
-                    else:
-                        # A lexing error
-                        self.index, self.lineno = index, lineno
 
-                        tok.type, tok.value = ("ERROR", text[index:])
-                        tok = self.error(tok)
-                        if tok is not None:
-                            tok.end = self.index
-                            yield tok
-
-                        index, lineno = self.index, self.lineno
+                    index, lineno = (self.index, self.lineno)
 
         # Set the final state of the lexer before exiting (even if exception)
         finally:

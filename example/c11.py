@@ -12,46 +12,46 @@ if TYPE_CHECKING:
 
 # region ---- Identifers
 
-_digit = "[0-9]"
-_hexadecimal_digit = "[0-9A-Fa-f]"
-_nondigit = "[a-zA-Z_]"
+_digit = r"[0-9]"
+_hexadecimal_digit = r"[0-9A-Fa-f]"
+_nondigit = r"[a-zA-Z_]"
 
 _universal_character_name = rf"\\u{_hexadecimal_digit}{{4}}|\\U{_hexadecimal_digit}{{8}}"
 
-_identifier_nondigit = f"{_nondigit}|({_universal_character_name})"
-_identifier = f"({_identifier_nondigit})(({_identifier_nondigit})|{_digit})*"
+_identifier_nondigit = rf"{_nondigit}|({_universal_character_name})"
+_identifier = rf"({_identifier_nondigit})(({_identifier_nondigit})|{_digit})*"
 
 # endregion ----
 
 
 # region ---- Integer constants
 
-_nonzero_digit = "[1-9]"
-_decimal_constant = f"{_nonzero_digit}{_digit}*"
+_nonzero_digit = r"[1-9]"
+_decimal_constant = rf"{_nonzero_digit}{_digit}*"
 
-_octal_digit = "[0-7]"
-_octal_constant = f"0{_octal_digit}*"
+_octal_digit = r"[0-7]"
+_octal_constant = rf"0{_octal_digit}*"
 
-_hexadecimal_prefix = "0[xX]"
-_hexadecimal_constant = f"{_hexadecimal_prefix}{_hexadecimal_digit}+"
+_hexadecimal_prefix = r"0[xX]"
+_hexadecimal_constant = rf"{_hexadecimal_prefix}{_hexadecimal_digit}+"
 
-_unsigned_suffix = "[uU]"
-_long_suffix = "[lL]"
-_long_long_suffix = "ll|LL"
+_unsigned_suffix = r"[uU]"
+_long_suffix = r"[lL]"
+_long_long_suffix = r"ll|LL"
 _integer_suffix = "|".join(
     (
-        f"({_unsigned_suffix}{_long_suffix}?)",
-        f"({_unsigned_suffix}({_long_long_suffix}))",
-        f"({_long_suffix}{_unsigned_suffix}?)",
-        f"(({_long_long_suffix}){_unsigned_suffix}?)",
+        rf"({_unsigned_suffix}{_long_suffix}?)",
+        rf"({_unsigned_suffix}({_long_long_suffix}))",
+        rf"({_long_suffix}{_unsigned_suffix}?)",
+        rf"(({_long_long_suffix}){_unsigned_suffix}?)",
     )
 )
 
 _integer_constant = "|".join(
     (
-        f"({_decimal_constant}({_integer_suffix})?)",
-        f"({_octal_constant}({_integer_suffix})?)",
-        f"({_hexadecimal_constant}({_integer_suffix})?)",
+        rf"({_decimal_constant}({_integer_suffix})?)",
+        rf"({_octal_constant}({_integer_suffix})?)",
+        rf"({_hexadecimal_constant}({_integer_suffix})?)",
     )
 )
 
@@ -60,9 +60,9 @@ _integer_constant = "|".join(
 
 # region ---- Floating constants
 
-_sign = "[-+]"
-_digit_sequence = f"{_digit}+"
-_floating_suffix = "[flFL]"
+_sign = r"[-+]"
+_digit_sequence = rf"{_digit}+"
+_floating_suffix = r"[flFL]"
 
 _fractional_constant = "|".join(
     (
@@ -71,26 +71,39 @@ _fractional_constant = "|".join(
     )
 )
 
-_exponent_part = f"[eE]{_sign}?{_digit_sequence}"
+_exponent_part = rf"[eE]{_sign}?{_digit_sequence}"
 _decimal_floating_constant = "|".join(
     (
-        f"(({_fractional_constant}){_exponent_part}?{_floating_suffix}?)",
-        f"({_digit_sequence}{_exponent_part}{_floating_suffix}?)",
+        rf"(({_fractional_constant}){_exponent_part}?{_floating_suffix}?)",
+        rf"({_digit_sequence}{_exponent_part}{_floating_suffix}?)",
     )
 )
 
-_hexadecimal_digit_sequence = f"{_hexadecimal_digit}+"
+_hexadecimal_digit_sequence = rf"{_hexadecimal_digit}+"
 _hexadecimal_fractional_constant = "|".join(
     (
         rf"(({_hexadecimal_digit_sequence})?\.{_hexadecimal_digit_sequence})",
         rf"({_hexadecimal_digit_sequence}\.)",
     )
 )
-_binary_exponent_part = f"[pP]{_sign}?{_digit_sequence}"
+_binary_exponent_part = rf"[pP]{_sign}?{_digit_sequence}"
 _hexadecimal_floating_constant = "|".join(
     (
-        f"({_hexadecimal_prefix}({_hexadecimal_fractional_constant})({_binary_exponent_part}){_floating_suffix}?)",
-        f"({_hexadecimal_prefix}{_hexadecimal_digit_sequence}{_binary_exponent_part}{_floating_suffix}?)",
+        rf"({_hexadecimal_prefix}({_hexadecimal_fractional_constant})({_binary_exponent_part}){_floating_suffix}?)",
+        rf"({_hexadecimal_prefix}{_hexadecimal_digit_sequence}{_binary_exponent_part}{_floating_suffix}?)",
+    )
+)
+
+# endregion ----
+
+
+# region ---- Constants
+
+_constant = "|".join(
+    (
+        rf"({_integer_constant})",
+        rf"({_decimal_floating_constant})",
+        rf"({_hexadecimal_floating_constant})",
     )
 )
 
@@ -171,13 +184,7 @@ class C11Lexer(Lexer):
     def ignore_newline(self, t: Token) -> None:
         self.lineno += len(t.value)
 
-    CONSTANT = "|".join(
-        (
-            f"({_integer_constant})",
-            f"({_decimal_floating_constant})",
-            f"({_hexadecimal_floating_constant})",
-        )
-    )
+    CONSTANT = _constant
 
     @_(_preprocessing_number)
     def PREPROCESSING_NUMBER(self, t: Token):
@@ -194,43 +201,43 @@ class C11Lexer(Lexer):
 
     # Assignment operators
     PLUS_ASSIGN             = r"\+="
-    MINUS_ASSIGN            = "-="
+    MINUS_ASSIGN            = r"\-="
     MUL_ASSIGN              = r"\*="
-    DIV_EQUAL               = "/="
-    MOD_ASSIGN              = "%="
+    DIV_EQUAL               = r"/="
+    MOD_ASSIGN              = r"%="
     OR_ASSIGN               = r"\|="
-    AND_ASSIGN              = "&="
+    AND_ASSIGN              = r"\&="
     XOR_ASSIGN              = r"\^="
-    LSHIFT_ASSIGN           = "<<="
-    RSHIFT_ASSIGN           = ">>="
+    LSHIFT_ASSIGN           = r"<<="
+    RSHIFT_ASSIGN           = r">>="
 
     # Operators
-    LSHIFT                  = "<<"
-    RSHIFT                  = ">>"
-    EQ                      = "=="
-    NEQ                     = "!="
-    LEQ                     = "<="
-    GEQ                     = ">="
-    ASSIGN                  = "="
-    LT                      = "<"
-    GT                      = ">"
-    INC                     = r"\+\+"   # Increment
-    DEC                     = "--"      # Decrement
-    PTR                     = "->"      # Structure dereference
+    LSHIFT                  = r"<<"
+    RSHIFT                  = r">>"
+    EQ                      = r"=="
+    NEQ                     = r"!="
+    LEQ                     = r"<="
+    GEQ                     = r">="
+    ASSIGN                  = r"="
+    LT                      = r"<"
+    GT                      = r">"
+    INC                     = r"\+\+"       # Increment
+    DEC                     = r"\-\-"       # Decrement
+    PTR                     = r"\->"        # Structure dereference
     PLUS                    = r"\+"
-    MINUS                   = "-"
+    MINUS                   = r"\-"
     STAR                    = r"\*"
-    SLASH                   = "/"
-    PERCENT                 = "%"
-    BANG                    = "!"
-    ANDAND                  = "&&"
+    SLASH                   = r"/"
+    PERCENT                 = r"%"
+    BANG                    = r"!"
+    ANDAND                  = r"\&\&"
     BARBAR                  = r"\|\|"
-    AND                     = "&"
+    AND                     = r"\&"
     BAR                     = r"\|"
     CARET                   = r"\^"
     QUESTION                = r"\?"
-    COLON                   = ":"
-    TILDE                   = "~"
+    COLON                   = r":"
+    TILDE                   = r"\~"
 
     # Delimiters
     LBRACE                  = r"\{"
@@ -239,8 +246,8 @@ class C11Lexer(Lexer):
     RBRACK                  = r"\]"
     LPAREN                  = r"\("
     RPAREN                  = r"\)"
-    SEMICOLON               = ";"
-    COMMA                   = ","
+    SEMICOLON               = r";"
+    COMMA                   = r","
     DOT                     = r"\."
 
     # Identifiers and keywords

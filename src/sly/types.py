@@ -5,8 +5,7 @@ imported at runtime. However, it can still provide typing and intellisense suppo
 type-checkers and IDEs can see it but the Python runtime doesn't, e.g. within an `if typing.TYPE_CHECKING: ...` block.
 That's what this module provides.
 
-Importing this module at runtime will raise an ImportError. This is intentionally done by using
-`typing.type_check_only()`, which doesn't exist at runtime.
+Importing this module at runtime will intentionally raise an ImportError.
 """
 
 from __future__ import annotations
@@ -15,7 +14,7 @@ from __future__ import annotations
 TYPE_CHECKING = False
 
 if not TYPE_CHECKING:
-    msg = "This module cannot be imported at runtime; see docstring for more details."
+    msg = "This module is not meant to be imported at runtime; see docstring for more details."
     raise ImportError(msg, name=__spec__.name)
 
 from collections.abc import Callable  # noqa: E402
