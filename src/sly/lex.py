@@ -122,16 +122,10 @@ class Token:
 
 
 class TokenStr(str):
-    def __new__(
-        cls,
-        value: object,
-        /,
-        key: str,
-        remap: _t.Optional[dict[tuple[str, _t.Any], _t.Any]] = None,
-    ) -> _t.Self:
+    def __new__(cls, value: object, key: str, remap: _t.Optional[dict[tuple[str, _t.Any], _t.Any]] = None) -> _t.Self:
         return super().__new__(cls, value)
 
-    def __init__(self, value: object, /, key: str, remap: _t.Optional[dict[tuple[str, _t.Any], _t.Any]] = None) -> None:
+    def __init__(self, value: object, key: str, remap: _t.Optional[dict[tuple[str, _t.Any], _t.Any]] = None) -> None:
         self.key = key
         self.remap = remap
 
@@ -180,7 +174,7 @@ class LexerMetaDict(dict[str, _t.Any] if TYPE_CHECKING else dict):
             prior = self[key]
             if isinstance(prior, str):
                 if callable(value):
-                    value.pattern = prior  # pyright: ignore [reportFunctionMemberAccess] # Runtime attribute assignment.
+                    value.pattern = prior  # pyright: ignore [reportFunctionMemberAccess]
                 else:
                     msg = f"Name {key!r} redefined."
                     raise AttributeError(msg)  # noqa: TRY004
@@ -194,7 +188,7 @@ class LexerMetaDict(dict[str, _t.Any] if TYPE_CHECKING else dict):
         else:
             return super().__delitem__(key)
 
-    def __missing__(self, key: str, /) -> TokenStr:
+    def __missing__(self, key: str) -> TokenStr:
         if key.split("ignore_")[-1].isupper() and key[:1] != "_":
             return TokenStr(key, key, self.remap)
         else:
@@ -269,7 +263,7 @@ class Lexer(metaclass=LexerMeta):
 
     # ---- Public class attributes.
     tokens: _t.ClassVar[set[str]] = set()
-    """Set of token names. Defining this is required."""
+    """Set of token names. Must be defined in a subclass."""
 
     literals: _t.ClassVar[set[str]] = set()
     """Characters serving as tokens that are always returned "as is"."""
@@ -278,20 +272,20 @@ class Lexer(metaclass=LexerMeta):
     """String containing ignored characters between tokens."""
 
     reflags: _t.ClassVar[int] = 0
+    """Optional flags to supply to the used regex compiler. Equivalent to the flags parameter in `re` functions."""
+
     regex_module = re
 
     # ---- Internal attributes
-    # fmt: off
-    _token_names:       _t.ClassVar[set[str]]                           = set()
-    _token_funcs:       _t.ClassVar[dict[str, _TokenMatchAction]]       = {}
-    _ignored_tokens:    _t.ClassVar[set[str]]                           = set()
-    _remapping:         _t.ClassVar[dict[str, dict[str, str]]]          = {}
-    _delete:            _t.ClassVar[list[str]]                          = []
-    _remap:             _t.ClassVar[dict[tuple[str, _t.Any], _t.Any]]   = {}
+    _token_names: _t.ClassVar[set[str]] = set()
+    _token_funcs: _t.ClassVar[dict[str, _TokenMatchAction]] = {}
+    _ignored_tokens: _t.ClassVar[set[str]] = set()
+    _remapping: _t.ClassVar[dict[str, dict[str, str]]] = {}
+    _delete: _t.ClassVar[list[str]] = []
+    _remap: _t.ClassVar[dict[tuple[str, _t.Any], _t.Any]] = {}
 
-    __state_stack:      _t.Optional[list[type[Lexer]]]                  = None
-    __set_state:        _t.Optional[_t.Callable[[type[Lexer]], None]]   = None
-    # fmt: on
+    __state_stack: _t.Optional[list[type[Lexer]]] = None
+    __set_state: _t.Optional[_t.Callable[[type[Lexer]], None]] = None
 
     def __init__(self) -> None:
         # ---- Public interface
@@ -478,14 +472,12 @@ class Lexer(metaclass=LexerMeta):
     def tokenize(self, text: str, lineno: int = 1, index: int = 0) -> _t.Generator[Token]:
         """Tokenize the given text."""
 
-        # fmt: off
-        _ignored_tokens:    set[str]                        = MISSING
-        _master_re:         re.Pattern[str]                 = MISSING
-        _ignore:            str                             = MISSING
-        _token_funcs:       dict[str, _TokenMatchAction]    = MISSING
-        _literals:          set[str]                        = MISSING
-        _remapping:         dict[str, dict[str, str]]       = MISSING
-        # fmt: on
+        _ignored_tokens: set[str] = MISSING
+        _master_re: re.Pattern[str] = MISSING
+        _ignore: str = MISSING
+        _token_funcs: dict[str, _TokenMatchAction] = MISSING
+        _literals: set[str] = MISSING
+        _remapping: dict[str, dict[str, str]] = MISSING
 
         # ---- Support for state changes
         def _set_state(cls: type[Lexer]) -> None:

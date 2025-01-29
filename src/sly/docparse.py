@@ -59,9 +59,12 @@ class DocParseMeta(type):
         if "__doc__" in namespace:
             lexer = cls.lexer()
             parser = cls.parser()
-            lexer.cls_name = parser.cls_name = clsname  # pyright: ignore # Runtime attribute assignment.
-            lexer.cls_qualname = parser.cls_qualname = namespace["__qualname__"]  # pyright: ignore # Runtime attribute assignment.
-            lexer.cls_module = parser.cls_module = namespace["__module__"]  # pyright: ignore # Runtime attribute assignment.
+
+            # Runtime attribute assignment
+            lexer.cls_name = parser.cls_name = clsname  # pyright: ignore [reportAttributeAccessIssue]
+            lexer.cls_qualname = parser.cls_qualname = namespace["__qualname__"]  # pyright: ignore [reportAttributeAccessIssue]
+            lexer.cls_module = parser.cls_module = namespace["__module__"]  # pyright: ignore [reportAttributeAccessIssue]
+
             parsedict = parser.parse(lexer.tokenize(namespace["__doc__"]))
             if not isinstance(parsedict, dict):
                 msg = "Parser must return a dictionary"

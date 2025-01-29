@@ -14,8 +14,10 @@ def unwrap(
     func: _t.Callable[..., _t.Any],
     *,
     stop: _t.Optional[_t.Callable[[_t.Callable[..., _t.Any]], _t.Any]] = None,
-) -> _t.Any:
-    """A adapted version of `inspect.unwrap()`. See the original docstring below:
+) -> _t.Any:  # pragma: no cover
+    """A adapted version of `inspect.unwrap()` to avoid depending on `inspect` at runtime.
+
+    See the original docstring below:
 
     Get the object wrapped by *func*.
 

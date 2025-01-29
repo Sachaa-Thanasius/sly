@@ -253,8 +253,6 @@ class Production:
         Set of unique symbols found in the production.
     """
 
-    reduced: int = 0
-
     def __init__(
         self,
         number: int,
@@ -267,16 +265,16 @@ class Production:
         *,
         name_aliases: dict[str, list[str]],
     ) -> None:
-        self.name = name
+        self.name: str = name
         self.prod: tuple[str, ...] = tuple(prod)
-        self.number = number
-        self.func = func
-        self.file = file
-        self.line = line
-        self.prec = precedence
+        self.number: int = number
+        self.func: _t.Callable[..., _t.Any] | None = func
+        self.file: str = file
+        self.line: int = line
+        self.prec: tuple[str, int] = precedence
 
         # Internal settings used during table construction
-        self.len = len(self.prod)
+        self.len: int = len(self.prod)
 
         # Create a list of unique production symbols used in the production
         self.usyms: list[str] = []
@@ -328,6 +326,8 @@ class Production:
         self.lr_next: _t.Optional[LRItem] = None
 
         self.lr0_added: int = 0
+
+        self.reduced: int = 0
 
     def __str__(self) -> str:
         if self.prod:
@@ -465,18 +465,16 @@ class Grammar:
     """
 
     def __init__(self, terminals: _t.Collection[str]) -> None:
-        # fmt: off
-        self.Productions:       list[Production]            = [None]  # pyright: ignore # Reserved spot.
-        self.Prodnames:         dict[str, list[Production]] = {}
-        self.Prodmap:           dict[str, Production]       = {}
-        self.Terminals:         dict[str, list[int]]        = dict({term: [] for term in terminals}, error=[])
-        self.Nonterminals:      dict[str, list[int]]        = {}
-        self.First:             dict[str, list[str]]        = {}
-        self.Follow:            dict[str, list[str]]        = {}
-        self.Precedence:        dict[str, tuple[str, int]]  = {}
-        self.UsedPrecedence:    set[str]                    = set()
-        self.Start:             _t.Optional[str]            = None
-        # fmt: on
+        self.Productions: list[Production] = [None]  # pyright: ignore # Reserved spot.
+        self.Prodnames: dict[str, list[Production]] = {}
+        self.Prodmap: dict[str, Production] = {}
+        self.Terminals: dict[str, list[int]] = dict({term: [] for term in terminals}, error=[])
+        self.Nonterminals: dict[str, list[int]] = {}
+        self.First: dict[str, list[str]] = {}
+        self.Follow: dict[str, list[str]] = {}
+        self.Precedence: dict[str, tuple[str, int]] = {}
+        self.UsedPrecedence: set[str] = set()
+        self.Start: _t.Optional[str] = None
 
     def __len__(self) -> int:
         return len(self.Productions)
@@ -1715,8 +1713,8 @@ class LRTable:
 _RawGrammarRule: _t.TypeAlias = "tuple[_t.Callable[..., _t.Any], str, int, str, list[str]]"
 
 
-class NameAliasesContext:
-    """State related to name aliases for repeated items in a grammar.
+class NameAliasesState:
+    """State related to name aliases for repeated items in an EBNF grammar.
 
     Attributes
     ----------
@@ -1728,13 +1726,16 @@ class NameAliasesContext:
 
     __slots__ = ("gen_count", "aliases")
 
+    gen_count: int
+    aliases: dict[str, list[str]]
+
     def __init__(self):
-        self.gen_count: int = 0
-        self.aliases: dict[str, list[str]] = {}
+        self.gen_count = 0
+        self.aliases = {}
 
 
-def _collect_grammar_rules(na_ctx: NameAliasesContext, func: _t.Callable[..., _t.Any]) -> list[_RawGrammarRule]:
-    """Collect grammar rules from a function."""
+def _collect_grammar_rules(na_state: NameAliasesState, func: _t.Callable[..., _t.Any]) -> list[_RawGrammarRule]:
+    """Collect grammar rules from a function (or class docstring)."""
 
     grammar: list[_RawGrammarRule] = []
     curr_func: _t.Optional[_t.Callable[..., _t.Any]] = func
@@ -1750,15 +1751,15 @@ def _collect_grammar_rules(na_ctx: NameAliasesContext, func: _t.Callable[..., _t
             while ("{" in syms) or ("[" in syms):
                 for s in syms:
                     if s == "[":
-                        syms, prod = _replace_ebnf_optional(na_ctx, syms)
+                        syms, prod = _replace_ebnf_optional(na_state, syms)
                         ebnf_prod.extend(prod)
                         break
                     if s == "{":
-                        syms, prod = _replace_ebnf_repeat(na_ctx, syms)
+                        syms, prod = _replace_ebnf_repeat(na_state, syms)
                         ebnf_prod.extend(prod)
                         break
                     if "|" in s:
-                        syms, prod = _replace_ebnf_choice(na_ctx, syms)
+                        syms, prod = _replace_ebnf_choice(na_state, syms)
                         ebnf_prod.extend(prod)
                         break
 
@@ -1773,7 +1774,7 @@ def _collect_grammar_rules(na_ctx: NameAliasesContext, func: _t.Callable[..., _t
     return grammar
 
 
-def _replace_ebnf_repeat(na_ctx: NameAliasesContext, syms: list[str]) -> tuple[list[str], list[_RawGrammarRule]]:
+def _replace_ebnf_repeat(na_state: NameAliasesState, syms: list[str]) -> tuple[list[str], list[_RawGrammarRule]]:
     """Replace EBNF repetition."""
 
     syms = list(syms)
@@ -1783,30 +1784,30 @@ def _replace_ebnf_repeat(na_ctx: NameAliasesContext, syms: list[str]) -> tuple[l
     # Look for choices inside
     repeated_syms = syms[first + 1 : end]
     if any("|" in sym for sym in repeated_syms):
-        repeated_syms, prods = _replace_ebnf_choice(na_ctx, repeated_syms)
+        repeated_syms, prods = _replace_ebnf_choice(na_state, repeated_syms)
     else:
         prods = []
 
-    symname, moreprods = _generate_repeat_rules(na_ctx, repeated_syms)
+    symname, moreprods = _generate_repeat_rules(na_state, repeated_syms)
     syms[first : end + 1] = [symname]
     return syms, prods + moreprods
 
 
-def _replace_ebnf_optional(na_ctx: NameAliasesContext, syms: list[str]) -> tuple[list[str], list[_RawGrammarRule]]:
+def _replace_ebnf_optional(na_state: NameAliasesState, syms: list[str]) -> tuple[list[str], list[_RawGrammarRule]]:
     syms = list(syms)
     first = syms.index("[")
     end = syms.index("]", first)
-    symname, prods = _generate_optional_rules(na_ctx, syms[first + 1 : end])
+    symname, prods = _generate_optional_rules(na_state, syms[first + 1 : end])
     syms[first : end + 1] = [symname]
     return syms, prods
 
 
-def _replace_ebnf_choice(na_ctx: NameAliasesContext, syms: list[str]) -> tuple[list[str], list[_RawGrammarRule]]:
+def _replace_ebnf_choice(na_state: NameAliasesState, syms: list[str]) -> tuple[list[str], list[_RawGrammarRule]]:
     syms = list(syms)
     newprods: list[_RawGrammarRule] = []
     for n, sym in enumerate(syms):
         if "|" in sym:
-            symname, prods = _generate_choice_rules(na_ctx, sym.split("|"))
+            symname, prods = _generate_choice_rules(na_state, sym.split("|"))
             syms[n] = symname
             newprods.extend(prods)
 
@@ -1823,12 +1824,12 @@ def _sanitize_symbols(symbols: list[str]) -> _t.Generator[str]:
             yield sym.encode("utf-8").hex()
 
 
-def _create_basename(na_ctx: NameAliasesContext, symbols: list[str]) -> str:
-    na_ctx.gen_count += 1
-    return f"_{na_ctx.gen_count}_" + "_".join(_sanitize_symbols(symbols))
+def _create_basename(na_state: NameAliasesState, symbols: list[str]) -> str:
+    na_state.gen_count += 1
+    return f"_{na_state.gen_count}_" + "_".join(_sanitize_symbols(symbols))
 
 
-def _generate_repeat_rules(na_ctx: NameAliasesContext, symbols: list[str]) -> tuple[str, list[_RawGrammarRule]]:
+def _generate_repeat_rules(na_state: NameAliasesState, symbols: list[str]) -> tuple[str, list[_RawGrammarRule]]:
     """Based on a given list of grammar symbols, generate code corresponding to these grammar construction:
 
     .. code-block:: python
@@ -1851,14 +1852,14 @@ def _generate_repeat_rules(na_ctx: NameAliasesContext, symbols: list[str]) -> tu
             return [ p.symbols ]
     """
 
-    basename = _create_basename(na_ctx, symbols)
+    basename = _create_basename(na_state, symbols)
 
     name = f"{basename}_repeat"
     oname = f"{basename}_items"
     iname = f"{basename}_item"
     symtext = " ".join(symbols)
 
-    na_ctx.aliases[name] = symbols
+    na_state.aliases[name] = symbols
 
     productions: list[_RawGrammarRule] = []
     _ = _rules_decorator
@@ -1871,8 +1872,8 @@ def _generate_repeat_rules(na_ctx: NameAliasesContext, symbols: list[str]) -> tu
     def repeat2(self: Parser, p: _t.Any) -> _t.Any:
         return []
 
-    productions.extend(_collect_grammar_rules(na_ctx, repeat))
-    productions.extend(_collect_grammar_rules(na_ctx, repeat2))
+    productions.extend(_collect_grammar_rules(na_state, repeat))
+    productions.extend(_collect_grammar_rules(na_state, repeat2))
 
     @_(f"{oname} : {oname} {iname}")
     def many(self: Parser, p: _t.Any) -> _t.Any:
@@ -1884,18 +1885,18 @@ def _generate_repeat_rules(na_ctx: NameAliasesContext, symbols: list[str]) -> tu
     def many2(self: Parser, p: _t.Any) -> _t.Any:
         return [getattr(p, iname)]
 
-    productions.extend(_collect_grammar_rules(na_ctx, many))
-    productions.extend(_collect_grammar_rules(na_ctx, many2))
+    productions.extend(_collect_grammar_rules(na_state, many))
+    productions.extend(_collect_grammar_rules(na_state, many2))
 
     @_(f"{iname} : {symtext}")
     def item(self: Parser, p: _t.Any) -> _t.Any:
         return tuple(p)
 
-    productions.extend(_collect_grammar_rules(na_ctx, item))
+    productions.extend(_collect_grammar_rules(na_state, item))
     return name, productions
 
 
-def _generate_optional_rules(na_ctx: NameAliasesContext, symbols: list[str]) -> tuple[str, list[_RawGrammarRule]]:
+def _generate_optional_rules(na_state: NameAliasesState, symbols: list[str]) -> tuple[str, list[_RawGrammarRule]]:
     """Based on a given list of grammar symbols [ symbols ], generate code corresponding to these grammar
     construction:
 
@@ -1910,12 +1911,12 @@ def _generate_optional_rules(na_ctx: NameAliasesContext, symbols: list[str]) -> 
             return None
     """
 
-    basename = _create_basename(na_ctx, symbols)
+    basename = _create_basename(na_state, symbols)
 
     name = f"{basename}_optional"
     symtext = " ".join(symbols)
 
-    na_ctx.aliases[name] = symbols
+    na_state.aliases[name] = symbols
 
     productions: list[_RawGrammarRule] = []
     _ = _rules_decorator
@@ -1930,12 +1931,12 @@ def _generate_optional_rules(na_ctx: NameAliasesContext, symbols: list[str]) -> 
     def optional2(self: Parser, p: _t.Any) -> _t.Any:
         return no_values
 
-    productions.extend(_collect_grammar_rules(na_ctx, optional))
-    productions.extend(_collect_grammar_rules(na_ctx, optional2))
+    productions.extend(_collect_grammar_rules(na_state, optional))
+    productions.extend(_collect_grammar_rules(na_state, optional2))
     return name, productions
 
 
-def _generate_choice_rules(na_ctx: NameAliasesContext, symbols: list[str]) -> tuple[str, list[_RawGrammarRule]]:
+def _generate_choice_rules(na_state: NameAliasesState, symbols: list[str]) -> tuple[str, list[_RawGrammarRule]]:
     """Based on a given list of grammar symbols such as [ 'PLUS', 'MINUS' ], generate code corresponding to the
     following construction:
 
@@ -1946,7 +1947,7 @@ def _generate_choice_rules(na_ctx: NameAliasesContext, symbols: list[str]) -> tu
             return p[0]
     """
 
-    basename = _create_basename(na_ctx, symbols)
+    basename = _create_basename(na_state, symbols)
 
     name = f"{basename}_choice"
 
@@ -1958,7 +1959,7 @@ def _generate_choice_rules(na_ctx: NameAliasesContext, symbols: list[str]) -> tu
         return p[0]
 
     choice.__name__ = name
-    productions.extend(_collect_grammar_rules(na_ctx, choice))
+    productions.extend(_collect_grammar_rules(na_state, choice))
     return name, productions
 
 
@@ -1975,8 +1976,8 @@ class ParserMetaDict(dict[str, _t.Any] if TYPE_CHECKING else dict):
 
     def __setitem__(self, key: str, value: _t.Any, /) -> None:
         if (key in self) and callable(value) and hasattr(value, "rules"):
-            value.next_func = self[key]
-            if not hasattr(value.next_func, "rules"):
+            value.next_func = self[key]  # pyright: ignore [reportFunctionMemberAccess]
+            if not hasattr(value.next_func, "rules"):  # pyright: ignore [reportFunctionMemberAccess]
                 msg = f"Redefinition of {key}. Perhaps an earlier {key} is missing `@_`."
                 raise GrammarError(msg)
         super().__setitem__(key, value)
@@ -2035,12 +2036,12 @@ class Parser(metaclass=ParserMeta):
     # ---- Public class attributes.
     if TYPE_CHECKING:
         tokens: _t.ClassVar[set[str]]
-        """Lexing tokens. Must be defined in a subclass by a user."""
+        """Lexing tokens. Must be defined in a subclass."""
 
         precedence: _t.ClassVar[_NestedConcreteSeqOfStr]
         """Precedence definition as a tuple/list containing tuples/lists of strings.
 
-        Can be defined in a subclass by a user.
+        Can be defined in a subclass.
         """
 
     log: _t.ClassVar[_t.LoggerLike] = SlyLogger(sys.stderr)
@@ -2151,19 +2152,17 @@ class Parser(metaclass=ParserMeta):
             except GrammarError as e:  # noqa: PERF203
                 errors.append(str(e))
 
-        na_ctx = NameAliasesContext()
+        na_state = NameAliasesState()
         for _name, func in rules:
-            try:
-                parsed_rule = _collect_grammar_rules(na_ctx, func)
-                for pfunc, rulefile, ruleline, prodname, syms in parsed_rule:
-                    try:
-                        grammar.add_production(prodname, syms, pfunc, rulefile, ruleline, name_aliases=na_ctx.aliases)
-                    except GrammarError as e:  # noqa: PERF203
-                        errors.append(str(e))
-            except SyntaxError as e:  # noqa: PERF203 # TODO: This is leftover; SyntaxError is no longer raised.
-                errors.append(str(e))
+            parsed_rule = _collect_grammar_rules(na_state, func)
+            for pfunc, rulefile, ruleline, prodname, syms in parsed_rule:
+                try:
+                    grammar.add_production(prodname, syms, pfunc, rulefile, ruleline, name_aliases=na_state.aliases)
+                except GrammarError as e:  # noqa: PERF203
+                    errors.append(str(e))
+
         try:
-            grammar.set_start(getattr(cls, "start", None), name_aliases=na_ctx.aliases)
+            grammar.set_start(getattr(cls, "start", None), name_aliases=na_state.aliases)
         except GrammarError as e:
             errors.append(str(e))
 

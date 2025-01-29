@@ -15,7 +15,16 @@ if TYPE_CHECKING:
 # TODO: Add more tests related to:
 #   - Lexer inheritance
 #       - `before` usage
-#       - deletion of tokens in subclasses
+#       - Deletion of tokens in subclasses
+#       - Redefinition of pre-existing rules in subclasses
+#   - `@_` API
+#       - Stacking the decorator mutiple times
+#       - Providing multiple strings as input
+#   - Remapped tokens accidentally being left out of the tokens set.
+#   - Invalid rule type, since all should be strings or callables.
+#   - Literals must be strings.
+#   - Valid use of push_state() and pop_state().
+#   - Backtracking via mark(), accept(), and reject().
 
 
 class TestBuildErrors:
@@ -54,6 +63,18 @@ class TestBuildErrors:
         class_qualname = f"{self.__class__.__name__}.test_undefined_tokens_set.<locals>.MyLexer"
 
         assert exc_info.value.args[0] == f"{class_qualname} class does not define a tokens attribute."
+
+    def test_invalid_multi_character_literal(self):
+        with pytest.raises(LexerBuildError) as exc_info:
+
+            class MyLexer(Lexer):
+                tokens = {NAME}
+
+                literals = {"+", "-", 1}
+
+                NAME = r"[a-zA-Z]+"
+
+        assert exc_info.value.args[0] == "literals must be specified as strings."
 
     def test_invalid_regex(self):
         with pytest.raises(PatternError) as exc_info:
@@ -112,20 +133,6 @@ class TestBuildErrors:
             _ = list(lexer.tokenize(source))
 
         assert exc_info.value.args[0] == "state must be a subclass of Lexer."
-
-    def test_invalid_multi_character_literal(self):
-        with pytest.raises(LexerBuildError) as exc_info:
-
-            class MyLexer(Lexer):
-                tokens = {NAME}
-
-                literals = {"++", "-"}
-
-                ignore = " \t"
-
-                NAME = r"[a-zA-Z]+"
-
-        assert exc_info.value.args[0] == "literals must each only be a single character."
 
 
 def test_empty_with_defined_tokens():

@@ -1,4 +1,4 @@
-"""Types for symbols that only exist during sly class creation, i.e. the  `@_` decorator.
+"""Types for symbols that only exist during sly class creation, i.e. the  `@_` decorator. Do not import at runtime.
 
 Because the `_` decorator doesn't exist outside of the body of a `sly.Lexer` or `sly.Parser` subclass body, it cannot be
 imported at runtime. However, it can still provide typing and intellisense support if "fake" imported such that

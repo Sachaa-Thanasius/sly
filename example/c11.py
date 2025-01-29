@@ -1,5 +1,10 @@
 # pyright: reportUndefinedVariable=none
 
+from __future__ import annotations
+
+from collections.abc import Generator
+from typing import Optional
+
 from sly import Lexer
 from sly.lex import Token, TokenStr
 
@@ -10,7 +15,10 @@ if TYPE_CHECKING:
     from sly.types import _
 
 
-# region ---- Identifers
+# region -------- Regex helper patterns --------
+
+
+# Identifiers
 
 _digit = r"[0-9]"
 _hexadecimal_digit = r"[0-9A-Fa-f]"
@@ -21,10 +29,8 @@ _universal_character_name = rf"\\u{_hexadecimal_digit}{{4}}|\\U{_hexadecimal_dig
 _identifier_nondigit = rf"{_nondigit}|({_universal_character_name})"
 _identifier = rf"({_identifier_nondigit})(({_identifier_nondigit})|{_digit})*"
 
-# endregion ----
 
-
-# region ---- Integer constants
+# Integer constants
 
 _nonzero_digit = r"[1-9]"
 _decimal_constant = rf"{_nonzero_digit}{_digit}*"
@@ -55,10 +61,8 @@ _integer_constant = "|".join(
     )
 )
 
-# endregion ----
 
-
-# region ---- Floating constants
+# Floating constants
 
 _sign = r"[-+]"
 _digit_sequence = rf"{_digit}+"
@@ -94,10 +98,8 @@ _hexadecimal_floating_constant = "|".join(
     )
 )
 
-# endregion ----
 
-
-# region ---- Constants
+# Constants
 
 _constant = "|".join(
     (
@@ -107,17 +109,13 @@ _constant = "|".join(
     )
 )
 
-# endregion ----
 
-
-# region ---- Preprocessing numbers
+# Preprocessing numbers
 
 _preprocessing_number = r"\.?[0-9]([0-9A-Za-z_\.]|[eEpP][+-])*"
 
-# endregion ----
 
-
-# region ---- Character and string constants
+# Character and string constants
 
 _simple_escape_sequence = r"""\\['"?\\abfnrtv]"""
 _octal_escape_sequence = rf"\\({_octal_digit}{{1,3}})"
@@ -131,10 +129,11 @@ _escape_sequence = "|".join(
     )
 )
 
-# endregion
+
+# endregion --------
 
 
-class C11Lexer(Lexer):
+class CLexer(Lexer):
     tokens = {
         # Constant
         CONSTANT,
@@ -184,15 +183,28 @@ class C11Lexer(Lexer):
     def ignore_newline(self, t: Token) -> None:
         self.lineno += len(t.value)
 
-    CONSTANT = _constant
+    @_(
+        _integer_constant,
+        _decimal_floating_constant,
+        _hexadecimal_floating_constant,
+    )
+    def CONSTANT(self, t: Token):
+        return t
 
     @_(_preprocessing_number)
     def PREPROCESSING_NUMBER(self, t: Token):
         print("ERROR: These characters form a preprocessor number, but not a constant")
         self.error(t)
 
-    # | (['L' 'u' 'U']|"") "'"        { char lexbuf; char_literal_end lexbuf; CONSTANT }
-    # | (['L' 'u' 'U']|""|"u8") "\""  { string_literal lexbuf; STRING_LITERAL }
+    @_(r"[LuU]?'")
+    def CHAR_CONSTANT_START(self, t: Token):
+        self._char_const_start = t
+        self.push_state(CCharConstantLexer)
+
+    @_(r'([LuU]|u8)?"')
+    def STRING_LITERAL_START(self, t: Token):
+        self._string_literal_start = t
+        self.push_state(CStringLiteralLexer)
 
     # fmt: off
 
@@ -299,3 +311,73 @@ class C11Lexer(Lexer):
     ID["_Thread_local"]     = THREAD_LOCAL
 
     # fmt: on
+
+    def tokenize(self, text: str, lineno: int = 1, index: int = 0) -> Generator[Token]:
+        yield from super().tokenize(text, lineno, index)
+
+        # Handle EOF for incomplete char constants and string literals.
+        if self._char_const_start is not None:
+            print("ERROR: Missing terminating ' character")
+            self.error(self._char_const_start)
+        elif self._string_literal_start is not None:
+            print('ERROR: Missing terminating " character')
+            self.error(self._string_literal_start)
+
+    def __init__(self):
+        self._char_const_start: Token | None = None
+        self._string_literal_start: Token | None = None
+
+
+class CCharConstantLexer(Lexer):
+    _char_const_start: Optional[Token]
+
+    tokens = {CHAR, INCORRECT_ESCAPE_SEQUENCE, CHAR_CONST_END, MISSING_TERMINATOR}
+
+    @_(_escape_sequence)
+    def CHAR(self, t: Token):
+        pass
+
+    @_(r"\\")
+    def INCORRECT_ESCAPE_SEQUENCE(self, t: Token):
+        print("ERROR: Incorrect escape sequence")
+        self.error(t)
+
+    @_(r"'")
+    def CHAR_CONSTANT_END(self, t: Token):
+        assert self._char_const_start is not None
+
+        self.pop_state()
+
+        start = self._char_const_start
+        self._char_const_start = None
+        return Token("CONSTANT", self.text[start.index : t.end], start.lineno, start.index, t.end)
+
+    @_(r"\n")
+    def MISSING_TERMINATOR(self, t: Token):
+        print("ERROR: Missing terminating ' character")
+        self.error(t)
+
+
+class CStringLiteralLexer(Lexer):
+    _string_literal_start: Optional[Token]
+
+    tokens = {STRING_LITERAL_END, MISSING_TERMINATOR, STRING}
+
+    @_(r'"')
+    def STRING_LITERAL_END(self, t: Token):
+        assert self._string_literal_start is not None
+
+        self.pop_state()
+
+        start = self._string_literal_start
+        self._string_literal_start = None
+        return Token("STRING_LITERAL", self.text[start.index : t.end], start.lineno, start.index, t.end)
+
+    @_(r"\n")
+    def MISSING_TERMINATOR(self, t: Token):
+        print('ERROR: Missing terminating " character')
+        self.error(t)
+
+    @_(r".")
+    def STRING(self, t: Token):
+        pass

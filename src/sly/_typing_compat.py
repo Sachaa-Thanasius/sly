@@ -1,3 +1,5 @@
+# ruff: noqa: PLW0603
+
 """Shim for typing- and annotation-related symbols to avoid runtime dependencies on `typing` or `typing-extensions`.
 
 Warning: Do not directly import annotation-related symbols from this module (e.g. `from ._typing_compat import Any`)!
@@ -45,8 +47,8 @@ __all__ = (
     "TextIO",
     "Union",
     # Annotation/typing symbols with version-dependent handling.
-    "Self",
     "TypeAlias",
+    "Self",
     # Used at runtime.
     "TYPE_CHECKING",
     "cast",
@@ -61,35 +63,35 @@ def __getattr__(name: str, /) -> object:
     # Save the imported symbols in the global namespace to avoid re-importing in the future.
 
     if name in {"Callable", "Collection", "Generator", "Iterator"}:
-        global Callable, Collection, Generator, Iterator  # noqa: PLW0603
+        global Callable, Collection, Generator, Iterator
 
         from collections.abc import Callable, Collection, Generator, Iterator
 
         return globals()[name]
 
     if name in {"Any", "ClassVar", "Final", "Literal", "Optional", "Union"}:
-        global Any, ClassVar, Final, Literal, Optional, TextIO, Union  # noqa: PLW0603
+        global Any, ClassVar, Final, Literal, Optional, TextIO, Union
 
         from typing import Any, ClassVar, Final, Literal, Optional, TextIO, Union
 
         return globals()[name]
 
-    if name == "Self" and sys.version_info >= (3, 11):
-        global Self  # noqa: PLW0603
-
-        from typing import Self
-
-        return globals()[name]
-
     if name == "TypeAlias" and sys.version_info >= (3, 10):
-        global TypeAlias  # noqa: PLW0603
+        global TypeAlias
 
         from typing import TypeAlias
 
         return globals()[name]
 
+    if name == "Self" and sys.version_info >= (3, 11):
+        global Self
+
+        from typing import Self
+
+        return globals()[name]
+
     if name == "CallableT":
-        global CallableT  # noqa: PLW0603
+        global CallableT
 
         from collections.abc import Callable
         from typing import Any, TypeVar
@@ -98,7 +100,7 @@ def __getattr__(name: str, /) -> object:
         return CallableT
 
     if name == "LoggerLike":
-        global LoggerLike  # noqa: PLW0603
+        global LoggerLike
 
         from typing import Any, Protocol
 
@@ -122,7 +124,7 @@ def __dir__() -> list[str]:
 # TypeAlias: Below 3.10, create a placeholder.
 if TYPE_CHECKING:
     from typing_extensions import TypeAlias
-elif sys.version_info < (3, 10):
+elif sys.version_info < (3, 10):  # pragma: <3.10 cover
 
     class TypeAlias(metaclass=_PlaceholderMeta):
         _source_module = "typing"
@@ -131,7 +133,7 @@ elif sys.version_info < (3, 10):
 # Self: Below 3.11, create a placeholder.
 if TYPE_CHECKING:
     from typing_extensions import Self
-elif sys.version_info < (3, 11):
+elif sys.version_info < (3, 11):  # pragma: <3.11 cover
 
     class Self(metaclass=_PlaceholderMeta):
         _source_module = "typing"
