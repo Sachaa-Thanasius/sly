@@ -977,7 +977,6 @@ def digraph(
     X: list[tuple[int, str]],
     R: _RelationFunction,
     FP: _SetValuedFunction,
-    _max_int: int,
 ) -> dict[tuple[int, str], list[str]]:
     """First helper for computing set valued functions of the form ``F(x) = F'(x) U U{F(y) | x R y}``.
 
@@ -1002,7 +1001,7 @@ def digraph(
     F: dict[tuple[int, str], list[str]] = {}
     for x in X:
         if N[x] == 0:
-            traverse(x, N, stack, F, X, R, FP, _max_int)
+            traverse(x, N, stack, F, X, R, FP)
     return F
 
 
@@ -1014,7 +1013,6 @@ def traverse(
     X: list[tuple[int, str]],
     R: _RelationFunction,
     FP: _SetValuedFunction,
-    _max_int: int,
 ) -> None:
     """Second helper for computing set valued functions of the form ``F(x) = F'(x) U U{F(y) | x R y}``.
 
@@ -1033,17 +1031,17 @@ def traverse(
     rel = R(x)  # Get y's related to x
     for y in rel:
         if N[y] == 0:
-            traverse(y, N, stack, F, X, R, FP, _max_int)
+            traverse(y, N, stack, F, X, R, FP)
         N[x] = min(N[x], N[y])
         for a in F.get(y, []):
             if a not in F[x]:
                 F[x].append(a)
     if N[x] == d:
-        N[stack[-1]] = _max_int
+        N[stack[-1]] = sys.maxsize
         F[stack[-1]] = F[x]
         element = stack.pop()
         while element != x:
-            N[stack[-1]] = _max_int
+            N[stack[-1]] = sys.maxsize
             F[stack[-1]] = F[x]
             element = stack.pop()
 
@@ -1055,9 +1053,8 @@ class LALRError(YaccError):
 class LRTable:
     """This class implements the LR table generation algorithm. There are no public methods except for `write()`."""
 
-    def __init__(self, grammar: Grammar, _max_int: int) -> None:
+    def __init__(self, grammar: Grammar) -> None:
         self.grammar = grammar
-        self._max_int: int = _max_int
 
         # Internal attributes
         self.lr_action: dict[int, dict[str, int]] = {}  # Action table
@@ -1073,12 +1070,8 @@ class LRTable:
 
         # Diagonistic information filled in by the table generator
         self.state_descriptions: dict[int, str] = {}
-        self.sr_conflict: int = 0
-        self.rr_conflict: int = 0
-        self.conflicts = []  # List of conflicts
-
-        self.sr_conflicts: list[tuple[int, str, str]] = []
-        self.rr_conflicts: list[tuple[int, Production, Production]] = []
+        self.sr_conflicts: list[tuple[int, str, str]] = []  # List of shift-reduce conflicts
+        self.rr_conflicts: list[tuple[int, Production, Production]] = []  # List of reduce-reduce conflicts
 
         # Build the tables
         self.grammar.build_lritems()
@@ -1352,8 +1345,8 @@ class LRTable:
 
                 lr_index = p.lr_index
                 j = state
-                while lr_index < p.len - 1:
-                    lr_index = lr_index + 1
+                while lr_index < (p.len - 1):
+                    lr_index += 1
                     t = p.prod[lr_index]
 
                     # Check to see if this symbol and state are a non-terminal transition
@@ -1362,13 +1355,11 @@ class LRTable:
                         # the only way to know for certain is whether the rest of the
                         # production derives empty
 
-                        li = lr_index + 1
-                        while li < p.len:
+                        for li in range(lr_index + 1, p.len):
                             if p.prod[li] in self.grammar.Terminals:
                                 break  # No forget it
                             if p.prod[li] not in nullable:
                                 break
-                            li = li + 1
                         else:
                             # Appears to be a relation between (j,t) and (state,N)
                             includes.append((j, t))
@@ -1382,13 +1373,8 @@ class LRTable:
                         continue
                     if r.len != p.len:
                         continue
-                    i = 0
                     # This look is comparing a production ". A B C" with "A B C ."
-                    while i < r.lr_index:
-                        if r.prod[i] != p.prod[i + 1]:
-                            break
-                        i += 1
-                    else:
+                    if all(r.prod[i] == p.prod[i + 1] for i in range(r.lr_index)):
                         lookb.append((j, r))
             for i in includes:
                 if i not in includedict:
@@ -1427,7 +1413,7 @@ class LRTable:
         def R(x: tuple[int, str]) -> list[tuple[int, str]]:
             return self.reads_relation(C, x, nullable)
 
-        F = digraph(ntrans, R, FP, self._max_int)
+        F = digraph(ntrans, R, FP)
         return F  # noqa: RET504
 
     def compute_follow_sets(
@@ -1460,7 +1446,7 @@ class LRTable:
         def R(x: tuple[int, str]) -> list[tuple[int, str]]:
             return inclsets.get(x, [])
 
-        F = digraph(ntrans, R, FP, self._max_int)
+        F = digraph(ntrans, R, FP)
         return F  # noqa: RET504
 
     def add_lookaheads(
@@ -1726,12 +1712,9 @@ class NameAliasesState:
 
     __slots__ = ("gen_count", "aliases")
 
-    gen_count: int
-    aliases: dict[str, list[str]]
-
     def __init__(self):
-        self.gen_count = 0
-        self.aliases = {}
+        self.gen_count: int = 0
+        self.aliases: dict[str, list[str]] = {}
 
 
 def _collect_grammar_rules(na_state: NameAliasesState, func: _t.Callable[..., _t.Any]) -> list[_RawGrammarRule]:
@@ -2056,9 +2039,6 @@ class Parser(metaclass=ParserMeta):
     error_count: _t.ClassVar[int] = 3
     """Yacc config knob: The number of symbols that must be shifted to leave recovery mode."""
 
-    max_int: _t.ClassVar[int] = sys.maxsize
-    """Yacc config knob."""
-
     def __init__(self) -> None:
         # ---- Public interface
         self.errorok: bool = MISSING
@@ -2129,9 +2109,7 @@ class Parser(metaclass=ParserMeta):
     def __validate_specification(cls) -> bool:
         """Validate various parts of the grammar specification."""
 
-        if not cls.__validate_tokens():
-            return False
-        return cls.__validate_precedence()
+        return cls.__validate_tokens() and cls.__validate_precedence()
 
     @classmethod
     def __build_grammar(cls, rules: list[tuple[str, _t.Callable[..., _t.Any]]]) -> None:
@@ -2210,7 +2188,7 @@ class Parser(metaclass=ParserMeta):
     def __build_lrtables(cls) -> bool:
         """Build the LR Parsing tables from the grammar."""
 
-        lrtable = LRTable(cls._grammar, cls.max_int)
+        lrtable = LRTable(cls._grammar)
         num_sr = len(lrtable.sr_conflicts)
 
         # Report shift/reduce and reduce/reduce conflicts
