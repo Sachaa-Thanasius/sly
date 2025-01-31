@@ -425,13 +425,10 @@ class LRItem:
         return f"{self.__class__.__name__}({self})"
 
 
-import functools
-
-
 class _LRPathItem:
     def __init__(self, lookahead: str):
-        self._hash = (lookahead,)
         self._lookahead = lookahead
+        self._hash = (lookahead,)
 
     def to_string(self) -> tuple[list[str], int]:
         return [self._lookahead], len(self._lookahead)
@@ -585,10 +582,11 @@ class LRDominanceNode:
                     if result is not None:
                         child_paths[-1] = child_paths[-1].expand(1, result)
 
-                    def merge_children(x: LRPath, y: LRPath) -> LRPath:
-                        return x.derive_from(y._node, None)
+                    # Merge children.
+                    result = child_paths[-1]
+                    for second in child_paths[-2::-1]:
+                        result = result.derive_from(second._node, None)
 
-                    result = functools.reduce(merge_children, child_paths[::-1])
                 return result
             elif lookahead in first_set[following_symbol]:
                 for child in sorted(node.direct_children, key=lambda n: len(n.item.prod)):
