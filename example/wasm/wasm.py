@@ -1,7 +1,8 @@
-"""wasm.py: Experimental builder for Wasm binary encoding. Use at your own peril."""
 # Author: David Beazley (@dabeaz)
 # Copyright (C) 2019
 # http://www.dabeaz.com
+
+"""wasm.py: Experimental builder for Wasm binary encoding. Use at your own peril."""
 
 import enum
 import json
@@ -9,20 +10,7 @@ import struct
 import sys
 from collections import defaultdict
 from collections.abc import Callable, Generator, Iterator
-from typing import TYPE_CHECKING, Optional, SupportsIndex, Union
-
-if sys.version_info >= (3, 12):
-    from typing import override
-elif TYPE_CHECKING:
-    from typing_extensions import override
-else:
-
-    def override(arg: object) -> object:
-        try:
-            arg.__override__ = True
-        except AttributeError:
-            pass
-        return arg
+from typing import TYPE_CHECKING, Any, Optional, SupportsIndex, Union
 
 
 if sys.version_info >= (3, 10):
@@ -113,34 +101,25 @@ def encode_vector(items: Union[bytes, list[bytes]]) -> bytes:
 
 
 class HexEnumMeta(enum.EnumMeta):
-    """Metaclass for instruction encoding categories. The class itself can be used as an integer when encoding
-    instructions.
+    """Metaclass for instruction encoding categories.
+
+    The class itself can be used as an integer when encoding instructions.
     """
+
+    def __init__(self, *args: Any, encoding: int = 0, **kwargs: Any):
+        super().__init__(*args, **kwargs)
+        self._encoding = encoding
 
     def __int__(self) -> int:
         return int(self._encoding)
 
     __index__ = __int__
 
-    @override
-    def __repr__(cls) -> str:
-        return cls.__name__
-
-    @override
-    @classmethod
-    def __prepare__(cls, name: str, bases: tuple[type, ...], **kwds: object) -> enum._EnumDict:
-        return super().__prepare__(name, bases)
-
-    def __new__(cls, name: str, bases: tuple[type, ...], namespace: enum._EnumDict, *, encoding: int = 0):
-        return super().__new__(cls, name, bases, namespace)
-
-    def __init__(self, name: str, bases: tuple[type, ...], namespace: enum._EnumDict, *, encoding: int = 0):
-        super().__init__(name, bases, namespace)
-        self._encoding = encoding
+    def __repr__(self) -> str:
+        return self.__name__
 
 
 class HexEnum(enum.IntEnum, metaclass=HexEnumMeta):
-    @override
     def __repr__(self) -> str:
         return f"<{self!s}: 0x{self:x}>"
 
@@ -601,7 +580,6 @@ class Type:
         self.results = results
         self.idx = idx
 
-    @override
     def __repr__(self):
         return f"{self.parms!r} -> {self.results!r}"
 
@@ -612,7 +590,6 @@ class ImportFunction:
         self._typesig = typesig
         self._idx = idx
 
-    @override
     def __repr__(self):
         return f"ImportFunction({self._name}, {self._typesig}, {self._idx})"
 
@@ -626,7 +603,6 @@ class Function(InstructionBuilder):
         self._export = export
         self._idx = idx
 
-    @override
     def __repr__(self):
         return f"Function({self._name}, {self._typesig}, {self._idx})"
 
@@ -643,7 +619,6 @@ class ImportGlobal:
         self.valtype = valtype
         self.idx = idx
 
-    @override
     def __repr__(self) -> str:
         return f"ImportGlobal({self.name}, {self.valtype}, {self.idx})"
 
@@ -655,7 +630,6 @@ class Global:
         self.initializer = initializer
         self.idx = idx
 
-    @override
     def __repr__(self) -> str:
         return f"Global({self.name}, {self.valtype}, {self.initializer}, {self.idx})"
 
@@ -721,7 +695,8 @@ class Module:
         results: list[WasmDataType],
     ) -> ImportFunction:
         if len(self.function_section) > 0:
-            raise RuntimeError("function imports must go before first function definition")
+            msg = "function imports must go before first function definition"
+            raise RuntimeError(msg)
 
         typesig = self.add_type(parms, results)
         code = encode_name(module) + encode_name(name) + b"\x00" + encode_unsigned(typesig.idx)
@@ -746,7 +721,8 @@ class Module:
 
     def import_global(self, module: str, name: str, value_type: WasmDataType) -> ImportGlobal:
         if len(self.global_section) > 0:
-            raise RuntimeError("global imports must go before first global definition")
+            msg = "global imports must go before first global definition"
+            raise RuntimeError(msg)
 
         code = encode_name(module) + encode_name(name) + b"\x03" + encode_global_type(value_type, False)
         self.import_section.append(code)
@@ -766,7 +742,7 @@ class Module:
         self.funcidx += 1
         self.functions.append(func)
         self.function_section.append(encode_unsigned(typesig.idx))
-        self.html_exports += f'<p><tt>{name}({", ".join(str(p) for p in parms)}) -> {results[0]!s}</tt></p>\n'
+        self.html_exports += f"<p><tt>{name}({', '.join(str(p) for p in parms)}) -> {results[0]!s}</tt></p>\n"
         return func
 
     def add_table(self, elemtype: WasmDataType, min: int, max: Optional[int] = None) -> int:  # noqa: A002

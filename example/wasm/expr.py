@@ -50,7 +50,8 @@ from typing import TYPE_CHECKING
 from sly import Lexer, Parser
 from sly.lex import Token
 
-import wasm
+from . import wasm
+
 
 if TYPE_CHECKING:
     from sly.types import _
@@ -244,7 +245,8 @@ if __name__ == "__main__":
     import sys
 
     if len(sys.argv) != 2:
-        raise SystemExit(f"Usage: {sys.argv[0]} module")
+        msg = f"Usage: {sys.argv[0]} module"
+        raise SystemExit(msg)
 
     lexer = ExprLexer()
     parser = ExprParser()

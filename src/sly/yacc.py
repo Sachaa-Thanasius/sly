@@ -37,7 +37,7 @@
 from __future__ import annotations
 
 import sys
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from itertools import count
 
 from . import _typing_compat as _t
@@ -985,9 +985,9 @@ def digraph(
     Parameters
     ----------
     X: list[tuple[int, str]]
-        An input set.
+        An input set of nodes.
     R: _RelationFunction
-        A relation.
+        A relation (i.e. a mapper from a node to a list of nodes that satisfy the relation).
     FP: _SetValuedFunction
         Set-valued function.
 
@@ -997,7 +997,7 @@ def digraph(
     """
 
     N = dict.fromkeys(X, 0)
-    stack: list[tuple[int, str]] = []
+    stack: deque[tuple[int, str]] = deque()
     F: dict[tuple[int, str], list[str]] = {}
     for x in X:
         if N[x] == 0:
@@ -1008,7 +1008,7 @@ def digraph(
 def traverse(
     x: tuple[int, str],
     N: dict[tuple[int, str], int],
-    stack: list[tuple[int, str]],
+    stack: deque[tuple[int, str]],
     F: dict[tuple[int, str], list[str]],
     X: list[tuple[int, str]],
     R: _RelationFunction,
@@ -1440,8 +1440,7 @@ class LRTable:
             A set containing the follow sets.
         """
 
-        def FP(x: tuple[int, str]) -> list[str]:
-            return readsets[x]
+        FP = readsets.__getitem__
 
         def R(x: tuple[int, str]) -> list[tuple[int, str]]:
             return inclsets.get(x, [])
@@ -1471,12 +1470,11 @@ class LRTable:
         for trans, lb in lookbacks.items():
             # Loop over productions in lookback
             for state, p in lb:
-                if state not in p.lookaheads:
-                    p.lookaheads[state] = []
+                la = p.lookaheads.setdefault(state, [])
                 f = followset.get(trans, [])
                 for a in f:
-                    if a not in p.lookaheads[state]:
-                        p.lookaheads[state].append(a)
+                    if a not in la:
+                        la.append(a)
 
     def add_lalr_lookaheads(self, C: list[list[LRItem]]) -> None:
         """This function does all of the work of adding lookahead information for use with LALR parsing."""
@@ -1637,6 +1635,9 @@ class LRTable:
                             else:
                                 st_action[a] = j
                                 st_actionp[a] = p
+
+            # TODO: Determine why _actprint isn't used as it is in ply.
+            # Ref: https://github.com/dabeaz/ply/blob/5c4dc94d4c6d059ec127ee1493c735963a5d2645/src/ply/yacc.py#L1894
 
             # Print the actions associated with each terminal
             _actprint: dict[tuple[str, str], int] = {}
