@@ -425,6 +425,321 @@ class LRItem:
         return f"{self.__class__.__name__}({self})"
 
 
+import functools
+
+
+class _LRPathItem:
+    def __init__(self, lookahead: str):
+        self._hash = (lookahead,)
+        self._lookahead = lookahead
+
+    def to_string(self) -> tuple[list[str], int]:
+        return [self._lookahead], len(self._lookahead)
+
+
+class LRPath:
+    """This class represents a path between nodes."""
+
+    def __init__(self, node: LRDominanceNode, sequence: list[_LRPathItem], use_marker: bool = True):
+        self._node: LRDominanceNode = node
+
+        if sequence:
+            self._sequence: list[_LRPathItem] = sequence
+        else:
+            self._sequence = [_LRPathItem(i) for i in node.item.prod[node.item.lr_index + 1 :]]
+
+            if use_marker:
+                self._sequence.insert(0, _LRPathItem("\u2666"))
+            if node.item.number == 0:
+                self._sequence.append(_LRPathItem("$end"))
+
+        self._hash = (node.item, *[s._hash for s in self._sequence])
+
+    def __hash__(self, /) -> int:
+        return hash(self._hash)
+
+    def __eq__(self, other: object, /) -> bool:
+        if not isinstance(other, self.__class__):
+            return NotImplemented
+        return self._hash == other._hash
+
+    def derive_from(self, node: LRDominanceNode, lookahead: _t.Optional[str]) -> LRPath:
+        if lookahead is None:
+            result = LRPath(node, [self] + [_LRPathItem(i) for i in node.item.prod[node.item.lr_index + 2 :]])
+            if node.item.number == 0:
+                result._sequence.append(_LRPathItem("$end"))
+        else:
+            result = LRPath(node, [_LRPathItem(lookahead), *self._sequence])
+        return result
+
+    def expand_left(self) -> LRPath:
+        return LRPath(
+            self._node,
+            [_LRPathItem(i) for i in self._node.item.prod[: self._node.item.lr_index]] + self._sequence,
+        )
+
+    def expand(self, index: int, path: LRPath) -> LRPath:
+        return LRPath(self._node, self._sequence[:index] + path._sequence)
+
+    def to_string(self) -> tuple[list[str], int]:
+        expanded_symbol = self._node.item.name
+        if len(self._sequence) == 0:
+            return ["", f"\u2570{expanded_symbol}\u256f"], len(expanded_symbol) + 2
+
+        buffer, length = self._sequence[0].to_string()
+        for item in self._sequence[1:]:
+            temp = buffer
+            extension, ext_length = item.to_string()
+            buffer = [f"{i: <{length}} {j}" for i, j in zip(temp, extension)]
+            buffer += temp[len(extension) :]
+            buffer += [(((length + 1) * " ") + j) for j in extension[len(temp) :]]
+            length += ext_length + 1
+
+        extra_padding = "\u2500" * (length - 2 - len(expanded_symbol))
+        buffer.append(f"\u2570{expanded_symbol}{extra_padding}\u256f")
+        return buffer, max(length, len(buffer[-1]))
+
+
+class LRDominanceNode:
+    """This class represents a node used in the complete grammar graph.
+
+    There is one dominance node for every item of every item set.
+    """
+
+    def __init__(
+        self,
+        item_set: LRItemSet,
+        item: LRItem,
+        predecessor: _t.Optional[tuple[str, LRDominanceNode]] = None,
+        parent: _t.Optional[LRDominanceNode] = None,
+    ):
+        self.item_set: LRItemSet = item_set
+        self.item: LRItem = item
+
+        if predecessor is not None:
+            self.predecessor_lookahead = predecessor[0]
+            self.predecessors = [predecessor[1]]
+        else:
+            self.predecessors: list[LRDominanceNode] = []
+
+        self.successor: LRDominanceNode | None = None
+
+        self.direct_parents: list[LRDominanceNode] = []
+        self.parents: set[LRDominanceNode] = set()
+        self.direct_children: list[LRDominanceNode] = []
+        self.children: set[LRDominanceNode] = set()
+
+        if parent is not None:
+            self.direct_parents.append(parent)
+            self.parents.add(parent)
+            parent.direct_children.append(self)
+            parent.children.add(self)
+
+    def expand_empty(self, first_set):
+        """Expand the first item of the path to build empty productions."""
+
+        if self.item.lr_index == len(self.item.prod) - 1:
+            return LRPath(self, [], use_marker=False)
+        for child in sorted(self.direct_children, key=lambda n: len(n.item.prod)):
+            try:
+                following_symbol = child.item.prod[1]
+            except IndexError:  # noqa: PERF203
+                result = LRPath(child, [], use_marker=False)
+                result = result.derive_from(self, None)
+                return result
+            else:
+                if "<empty>" in first_set[following_symbol]:
+                    p = child.successor.expand_empty(first_set)
+                    if p:
+                        result = child.expand_empty(first_set)
+                        result = result.expand(1, p)
+                        result = result.derive_from(self, None)
+                        return result
+        return None
+
+    def expand_lookahead(self, lookahead: str, first_set):
+        """Expand the first item of the path until it starts with the lookahead."""
+
+        if self.item.prod[self.item.lr_index + 1] == lookahead:
+            return LRPath(self, [], use_marker=False)
+
+        queue: list[tuple[LRDominanceNode, list[list[LRPath]]]] = [(self, [[]])]
+        seen: set[LRDominanceNode] = set()
+
+        while queue:
+            node, paths = queue.pop(0)
+            if node in seen:
+                continue
+            seen.add(node)
+
+            try:
+                following_symbol = node.item.prod[node.item.lr_index + 1]
+            except IndexError:
+                continue
+
+            if following_symbol == lookahead:
+                result = None
+                paths[-1].append(LRPath(node, [], use_marker=False))
+                while paths:
+                    child_paths = paths.pop(-1)
+                    if result is not None:
+                        child_paths[-1] = child_paths[-1].expand(1, result)
+
+                    def merge_children(x: LRPath, y: LRPath) -> LRPath:
+                        return x.derive_from(y._node, None)
+
+                    result = functools.reduce(merge_children, child_paths[::-1])
+                return result
+            elif lookahead in first_set[following_symbol]:
+                for child in sorted(node.direct_children, key=lambda n: len(n.item.prod)):
+                    queue.append((child, paths[:-1] + [paths[-1] + [LRPath(node, [], use_marker=False)]]))
+            elif "<empty>" in first_set[following_symbol]:
+                queue.append((node.successor, paths[:-1] + [paths[-1] + [node.expand_empty(first_set)]] + [[]]))
+
+        return None
+
+    def filter_node_by_lookahead(self, path: LRPath, lookahead, first_set):
+        result = []
+        if lookahead is not None:
+            try:
+                following_symbol = self.item.prod[self.item.lr_index + 2]
+            except IndexError:
+                if lookahead == "$end" and self.item.number == 0:
+                    result.append((path, None))
+                else:
+                    result.append((path, lookahead))
+            else:
+                if "<empty>" in first_set[following_symbol]:
+                    successor_path = self.successor.expand_empty(first_set)
+                    for p, la in self.successor.filter_node_by_lookahead(successor_path, lookahead, first_set):
+                        result.append((path.expand(1, p), la))
+                if lookahead in first_set[following_symbol]:
+                    successor_path = self.successor.expand_lookahead(lookahead, first_set)
+                    result.append((path.expand(1, successor_path), None))
+        else:
+            result.append((path, lookahead))
+        return result
+
+    def backtrack_up(self, path: LRPath, state, lookahead, first_set, seen: set):
+        """This method will find the fastest path from self to the specified parent state.
+
+        It will only find paths that can be followed by lookahead.
+        """
+
+        queue = [(path, lookahead)]
+        result = []
+        shortest_path_seen: set[tuple[str, LRItemSet, tuple[str]]] = set()
+        while queue:
+            path, lookahead = queue.pop(0)
+            node = path._node
+            for parent in sorted(node.direct_parents, key=lambda n: len(n.item.prod) - n.item.lr_index):
+                if (parent, lookahead) in seen:
+                    continue
+                seen.add((parent, lookahead))
+                if (
+                    parent.item.lr_index > 0
+                    and (lookahead, parent.item_set, parent.item.prod[: parent.item.lr_index]) in shortest_path_seen
+                ):
+                    continue
+                for p, la in parent.filter_node_by_lookahead(path.derive_from(parent, None), lookahead, first_set):
+                    if parent.item.lr_index > 0 and la is None:
+                        shortest_path_seen.add((lookahead, parent.item_set, parent.item.prod[: parent.item.lr_index]))
+                    if la is None and state is None:
+                        result.append((p, la))
+                    else:
+                        queue.append((p, la))
+            for predecessor in node.predecessors:
+                if (predecessor, lookahead) in seen:
+                    continue
+                seen.add((predecessor, lookahead))
+                if state is None or predecessor.item_set == state:
+                    if predecessor.item.lr_index > 0:
+                        if (
+                            lookahead,
+                            predecessor.item_set,
+                            predecessor.item.prod[: predecessor.item.lr_index],
+                        ) in shortest_path_seen:
+                            continue
+                        shortest_path_seen.add(
+                            (lookahead, predecessor.item_set, predecessor.item.prod[: predecessor.item.lr_index])
+                        )
+                    result.append((path.derive_from(predecessor, node.predecessor_lookahead), lookahead))
+        return result
+
+
+class LRItemSet:
+    """This class represents a collection of LRItem objects and their relationship.
+
+    Storing relationships between LRItems allows backtracking to find sequences of tokens that lead to a conflict.
+    """
+
+    def __init__(self, core: list[tuple[LRItem, _t.Optional[LRDominanceNode], object]]):
+        self._core: set[LRDominanceNode] = set()
+        self._items: dict[LRItem, LRDominanceNode] = {}
+        self.add_core(core)
+        self._lr0_close()
+
+    def __iter__(self, /):
+        return iter(self._items)
+
+    def __getitem__(self, item: LRItem, /):
+        return self._items[item]
+
+    def __repr__(self, /):
+        return f"{self.__class__.__name__}({id(self)})"
+
+    def add_core(self, core: list[tuple[LRItem, _t.Optional[LRDominanceNode], object]]) -> None:
+        for item, node, lookahead in core:
+            try:
+                target_node = self._items[item]
+            except KeyError:
+                if node is not None:
+                    target_node = LRDominanceNode(self, item, predecessor=(lookahead, node))
+                else:
+                    target_node = LRDominanceNode(self, item)
+                self._items[item] = target_node
+            else:
+                assert node not in target_node.predecessors
+                target_node.predecessors.append(node)
+            if node is not None:
+                node.successor = target_node
+            self._core.add(target_node)
+
+    def _lr0_close(self) -> None:
+        """Compute the LR(0) closure operation on self._items."""
+
+        new_items: dict[LRItem, LRDominanceNode] = self._items
+        while new_items:
+            self._items.update(new_items)
+            new_items = {}
+            for item, dn in self._items.items():
+                for x in item.lr_after:
+                    try:
+                        successor = self._items[x.lr_next]
+                    except KeyError:
+                        try:
+                            successor = new_items[x.lr_next]
+                        except KeyError:
+                            successor = LRDominanceNode(self, x.lr_next, parent=dn)
+                            new_items[x.lr_next] = successor
+                    if successor not in dn.direct_children:
+                        dn.direct_children.append(successor)
+                    if dn not in successor.direct_parents:
+                        successor.direct_parents.append(dn)
+
+                    dn.children.add(successor)
+                    dn.children.update(successor.children)
+                    for node in dn.parents:
+                        node.children.add(successor)
+                        node.children.update(successor.children)
+
+                    successor.parents.add(dn)
+                    successor.parents.update(dn.parents)
+                    for node in successor.children:
+                        node.parents.add(dn)
+                        node.parents.update(dn.parents)
+
+
 class GrammarError(YaccError):
     """Exception raised when something goes wrong in constructing the grammar."""
 
