@@ -163,11 +163,10 @@ class YaccProduction:
 
     @property
     def end(self) -> _t.Any:
-        result = None
-        for tok in self._slice:
-            if r := getattr(tok, "end", None):
-                result = r
-        return result
+        for tok in reversed(self._slice):
+            if result := getattr(tok, "end", None):
+                return result
+        return None
 
     def __getitem__(self, index: int, /) -> _t.Any:
         if index >= 0:
@@ -195,7 +194,7 @@ class YaccProduction:
 
     def __setattr__(self, name: str, value: object, /) -> None:
         if name[:1] == "_":
-            super().__setattr__(name, value)
+            return super().__setattr__(name, value)
         else:
             msg = f"Can't reassign the value of attribute {name!r}."
             raise AttributeError(msg)
@@ -2253,8 +2252,11 @@ class Parser(metaclass=ParserMeta):
             cls.log.info("Parser debugging for %s written to %s", cls.__qualname__, cls.debugfile)
 
     # ----------------------------------------------------------------------
-    # Parsing Support. This is the parsing runtime that users use.
+    # region ---- Parsing Support ----
+    #
+    # This is the parsing runtime that users use.
     # ----------------------------------------------------------------------
+
     def error(self, token: _t.Optional[_t.Union[Token, YaccSymbol]]) -> None:
         """Default error handling function. This may be redefined in subclasses."""
 
@@ -2502,6 +2504,8 @@ class Parser(metaclass=ParserMeta):
         """
 
         return self._index_positions[id(value)]
+
+    # endregion
 
 
 # endregion
