@@ -1504,8 +1504,6 @@ class LRTable:
         goto = self.lr_goto  # Goto array
         action = self.lr_action  # Action array
 
-        actionp = {}  # Action production array (temporary)
-
         # Step 1: Construct C = { I0, I1, ... IN}, collection of LR(0) items
         # This determines the number of states
 
@@ -1518,7 +1516,7 @@ class LRTable:
             # Loop over each production in I
             actlist: list[tuple[str, LRItem, str]] = []  # List of actions
             st_action: dict[str, _t.Optional[int]] = {}
-            st_actionp: dict[str, LRItem] = {}
+            st_actionp: dict[str, LRItem] = {}  # Action production array (temporary)
             st_goto: dict[str, int] = {}
 
             descrip.append(f"\nstate {st}\n")
@@ -1635,16 +1633,23 @@ class LRTable:
                                 st_action[a] = j
                                 st_actionp[a] = p
 
-            # TODO: Determine why _actprint isn't used as it is in ply.
-            # Ref: https://github.com/dabeaz/ply/blob/5c4dc94d4c6d059ec127ee1493c735963a5d2645/src/ply/yacc.py#L1894
-
             # Print the actions associated with each terminal
-            _actprint: dict[tuple[str, str], int] = {}
+            _actprint: set[tuple[str, str]] = set()
             for a, p, m in actlist:
                 if (a in st_action) and (p is st_actionp[a]):
                     descrip.append(f"    {a:<15s} {m}")
-                    _actprint[(a, m)] = 1
+                    _actprint.add((a, m))
             descrip.append("")
+
+            # Print the actions that were not used. (debugging)
+            not_used = True
+            for a, p, m in actlist:
+                if (a in st_action) and (p is not st_actionp[a]) and ((a, m) not in _actprint):
+                    descrip.append(f"  ! {a:<15s} {m}")
+                    _actprint.add((a, m))
+                    not_used = False
+            if not_used:
+                descrip.append("")
 
             # Construct the goto table for this state
             nkeys = {s: None for ii in I for s in ii.usyms if s in self.grammar.Nonterminals}
@@ -1657,7 +1662,6 @@ class LRTable:
                     descrip.append(f"    {n:<30s} shift and go to state {j}")
 
             action[st] = st_action
-            actionp[st] = st_actionp
             goto[st] = st_goto
             self.state_descriptions[st] = "\n".join(descrip)
 

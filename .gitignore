@@ -165,3 +165,7 @@ cython_debug/
 # Debug output.
 *.out
 *.dot
+
+# Profiler output.
+*.pstats
+*.svg

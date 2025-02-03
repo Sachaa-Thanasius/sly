@@ -1,13 +1,13 @@
 # ruff: noqa: F811, F821, RUF012, ANN201
 # pyright: basic, reportUndefinedVariable=none, reportRedeclaration=none
 
-"""Simple benchmark adapted from python-parsing-benchmark.
+"""Simple benchmark adapted from python-parsing-benchmarks.
 
 Run with the following commands::
 
     python -m pip install -U yelp-gprof2dot
     python -m cProfile -o benchmarks/log.pstats -m example.json run
-    gprof2dot benchmarks/log.pstats [-z json:<line_no>:bench] | dot -Tsvg -o benchmarks/log.svg
+    gprof2dot benchmarks/log.pstats [-z <module_name>:<line_no>:<function_name>] | dot -Tsvg -o benchmarks/log.svg
 """
 
 from __future__ import annotations
@@ -113,8 +113,7 @@ big = "[" + ",".join(5000 * obj) + "]"
 
 
 def bench():
-    tokens = list(lexer.tokenize(big))
-    _ = parser.parse(iter(tokens))
+    parser.parse(lexer.tokenize(big))
 
 
 if __name__ == "__main__":
