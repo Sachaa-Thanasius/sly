@@ -6,7 +6,7 @@
 Run with the following commands::
 
     python -m pip install -U yelp-gprof2dot
-    python -m cProfile -o benchmarks/log.pstats -m example.json run
+    python -m cProfile -o benchmarks/log.pstats -m benchmarks.json run
     gprof2dot benchmarks/log.pstats [-z <module_name>:<line_no>:<function_name>] | dot -Tsvg -o benchmarks/log.svg
 """
 

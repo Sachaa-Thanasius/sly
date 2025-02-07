@@ -174,7 +174,7 @@ keep-runtime-typing = true
     "ANN201", # Annotations for public function returns.
     "ANN202", # Annotations for private function returns.
 ]
-"example/**/*.py" = [
+"examples/**/*.py" = [
     # Refer to comments in the tests/*.py entry.
     "RUF012", # Mutable class attributes.
     "F811",
@@ -191,7 +191,7 @@ keep-runtime-typing = true
 
 [tool.pyright]
 include = ["src/sly"]
-ignore = ["example/calc*", "example/schcls.py", "tests"]
+ignore = ["examples/calc*", "examples/schcls.py", "tests"]
 pythonVersion = "3.9"
 pythonPlatform = "All"
 typeCheckingMode = "strict"

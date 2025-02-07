@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Generator
 
 from sly import Lexer
-from sly.lex import Token, TokenStr
+from sly.lex import LexError, Token, TokenStr
 
 from ._regex_helpers import (
     _decimal_floating_constant,
@@ -23,6 +23,10 @@ TYPE_CHECKING = False
 if TYPE_CHECKING:
     from sly.types import _
 
+_constant = "|".join(
+    f"({part})" for part in (_integer_constant, _decimal_floating_constant, _hexadecimal_floating_constant)
+)
+
 
 class CLexer(Lexer):
     tokens = {
@@ -33,7 +37,7 @@ class CLexer(Lexer):
         ELLIPSIS,
 
         # Assignment operators
-        PLUS_ASSIGN, MINUS_ASSIGN, MUL_ASSIGN, DIV_EQUAL, MOD_ASSIGN,
+        PLUS_ASSIGN, MINUS_ASSIGN, MUL_ASSIGN, DIV_ASSIGN, MOD_ASSIGN,
         OR_ASSIGN, AND_ASSIGN, XOR_ASSIGN, LSHIFT_ASSIGN, RSHIFT_ASSIGN,
 
         # Operators
@@ -64,7 +68,7 @@ class CLexer(Lexer):
         ALIGNAS, ALIGNOF, ATOMIC, BOOL, COMPLEX, GENERIC, IMAGINARY, NORETURN, STATIC_ASSERT, THREAD_LOCAL,
 
         # Identifier
-        ID, TYPE, VARIABLE,
+        NAME, TYPE, VARIABLE,
     }  # fmt: skip
 
     # Whitespace
@@ -74,26 +78,22 @@ class CLexer(Lexer):
     def ignore_newline(self, t: Token) -> None:
         self.lineno += len(t.value)
 
-    @_(
-        _integer_constant,
-        _decimal_floating_constant,
-        _hexadecimal_floating_constant,
-    )
-    def CONSTANT(self, t: Token):
-        return t
+    CONSTANT = _constant
 
     @_(_preprocessing_number)
     def PREPROCESSING_NUMBER(self, t: Token):
-        print("ERROR: These characters form a preprocessor number, but not a constant")
-        self.error(t)
+        # Not an actual token; results in error.
+        self.error(t, "These characters form a preprocessor number, but not a constant.")
 
     @_(r"[LuU]?'")
     def CHAR_CONSTANT_START(self, t: Token):
+        # Not an actual token; results in CONSTANT or error.
         self._char_const_start = t
         self.push_state(CCharConstantLexer)
 
     @_(r'([LuU]|u8)?"')
     def STRING_LITERAL_START(self, t: Token):
+        # Not an actual token; results in STRING_LITERAL or error.
         self._string_literal_start = t
         self.push_state(CStringLiteralLexer)
 
@@ -106,7 +106,7 @@ class CLexer(Lexer):
     PLUS_ASSIGN             = r"\+="
     MINUS_ASSIGN            = r"\-="
     MUL_ASSIGN              = r"\*="
-    DIV_EQUAL               = r"/="
+    DIV_ASSIGN              = r"/="
     MOD_ASSIGN              = r"%="
     OR_ASSIGN               = r"\|="
     AND_ASSIGN              = r"\&="
@@ -154,72 +154,88 @@ class CLexer(Lexer):
     DOT                     = r"\."
 
     # Identifiers and keywords
-    ID: TokenStr            = _identifier  # pyright: ignore [reportAssignmentType]
-    ID["auto"]              = AUTO
-    ID["break"]             = BREAK
-    ID["case"]              = CASE
-    ID["char"]              = CHAR
-    ID["const"]             = CONST
-    ID["continue"]          = CONTINUE
-    ID["default"]           = DEFAULT
-    ID["do"]                = DO
-    ID["double"]            = DOUBLE
-    ID["else"]              = ELSE
-    ID["enum"]              = ENUM
-    ID["extern"]            = EXTERN
-    ID["float"]             = FLOAT
-    ID["for"]               = FOR
-    ID["goto"]              = GOTO
-    ID["if"]                = IF
-    ID["inline"]            = INLINE
-    ID["int"]               = INT
-    ID["long"]              = LONG
-    ID["register"]          = REGISTER
-    ID["restrict"]          = RESTRICT
-    ID["return"]            = RETURN
-    ID["short"]             = SHORT
-    ID["signed"]            = SIGNED
-    ID["sizeof"]            = SIZEOF
-    ID["static"]            = STATIC
-    ID["struct"]            = STRUCT
-    ID["switch"]            = SWITCH
-    ID["typedef"]           = TYPEDEF
-    ID["union"]             = UNION
-    ID["unsigned"]          = UNSIGNED
-    ID["void"]              = VOID
-    ID["volatile"]          = VOLATILE
-    ID["while"]             = WHILE
+    NAME: TokenStr          = _identifier  # pyright: ignore [reportAssignmentType]
+    NAME["auto"]            = AUTO
+    NAME["break"]           = BREAK
+    NAME["case"]            = CASE
+    NAME["char"]            = CHAR
+    NAME["const"]           = CONST
+    NAME["continue"]        = CONTINUE
+    NAME["default"]         = DEFAULT
+    NAME["do"]              = DO
+    NAME["double"]          = DOUBLE
+    NAME["else"]            = ELSE
+    NAME["enum"]            = ENUM
+    NAME["extern"]          = EXTERN
+    NAME["float"]           = FLOAT
+    NAME["for"]             = FOR
+    NAME["goto"]            = GOTO
+    NAME["if"]              = IF
+    NAME["inline"]          = INLINE
+    NAME["int"]             = INT
+    NAME["long"]            = LONG
+    NAME["register"]        = REGISTER
+    NAME["restrict"]        = RESTRICT
+    NAME["return"]          = RETURN
+    NAME["short"]           = SHORT
+    NAME["signed"]          = SIGNED
+    NAME["sizeof"]          = SIZEOF
+    NAME["static"]          = STATIC
+    NAME["struct"]          = STRUCT
+    NAME["switch"]          = SWITCH
+    NAME["typedef"]         = TYPEDEF
+    NAME["union"]           = UNION
+    NAME["unsigned"]        = UNSIGNED
+    NAME["void"]            = VOID
+    NAME["volatile"]        = VOLATILE
+    NAME["while"]           = WHILE
 
-    ID["_Alignas"]          = ALIGNAS
-    ID["_Alignof"]          = ALIGNOF
-    ID["_Atomic"]           = ATOMIC
-    ID["_Bool"]             = BOOL
-    ID["_Complex"]          = COMPLEX
-    ID["_Generic"]          = GENERIC
-    ID["_Imaginary"]        = IMAGINARY
-    ID["_Noreturn"]         = NORETURN
-    ID["_Static_assert"]    = STATIC_ASSERT
-    ID["_Thread_local"]     = THREAD_LOCAL
+    NAME["_Alignas"]        = ALIGNAS
+    NAME["_Alignof"]        = ALIGNOF
+    NAME["_Atomic"]         = ATOMIC
+    NAME["_Bool"]           = BOOL
+    NAME["_Complex"]        = COMPLEX
+    NAME["_Generic"]        = GENERIC
+    NAME["_Imaginary"]      = IMAGINARY
+    NAME["_Noreturn"]       = NORETURN
+    NAME["_Static_assert"]  = STATIC_ASSERT
+    NAME["_Thread_local"]   = THREAD_LOCAL
 
     # fmt: on
 
     def tokenize(self, text: str, lineno: int = 1, index: int = 0) -> Generator[Token]:
+        """Tokenize the given C code.
+
+        Raises
+        ------
+        LexError
+            If any of the following happens:
+                - An unknown character is encountered.
+                - A string literal body ends, via newline or EOF, before the terminating double-quote.
+                - A character constant body ends, via newline or EOF, before the terminating single-quote.
+                - A character constant contains an invalid escape sequence.
+        """
+
         for tok in super().tokenize(text, lineno, index):
             yield tok
 
-            # Handle name ambiguity.
-            if tok.type == "ID":
+            # TYPE or VARIABLE are emitted lazily when the parser requests an extra token to disambiguate
+            # typedef and variable names.
+            if tok.type == "NAME":
                 id_type = "TYPE" if (tok.value in self.context) else "VARIABLE"
                 yield Token(id_type, tok.value, tok.lineno, tok.index, tok.end)
 
         # Handle EOF for incomplete char constants and string literals.
         if self._char_const_start is not None:
-            print("ERROR: Missing terminating ' character")
-            self.error(self._char_const_start)
+            self.error(self._char_const_start, "Missing terminating ' character.")
 
         if self._string_literal_start is not None:
-            print('ERROR: Missing terminating " character')
-            self.error(self._string_literal_start)
+            self.error(self._string_literal_start, 'Missing terminating " character.')
+
+    def error(self, t: Token, msg: str | None = None):
+        if msg is None:
+            msg = f"Illegal character {t.value[0]!r} at index {self.index}."
+        raise LexError(msg, t.value, self.index)
 
     def __init__(self, context: CNameContext):
         self.context = context
@@ -229,55 +245,70 @@ class CLexer(Lexer):
 
 
 class CCharConstantLexer(Lexer):
+    """Lexer for finding the end of a C character constant.
+
+    Precondition for usage: The start of the character constant was already found and consumed.
+    """
+
     _char_const_start: Token | None
 
-    tokens = {CHAR, INCORRECT_ESCAPE_SEQUENCE, CHAR_CONST_END, MISSING_TERMINATOR}
+    tokens = {CHAR_CHAR, INCORRECT_ESCAPE_SEQUENCE, CHAR_CONST_END, MISSING_TERMINATOR}
 
     @_(_escape_sequence)
-    def CHAR(self, t: Token):
+    def CHAR_CHAR(self, t: Token):
         pass
 
     @_(r"\\")
     def INCORRECT_ESCAPE_SEQUENCE(self, t: Token):
-        print("ERROR: Incorrect escape sequence")
-        self.error(t)
+        self.error(t, "Incorrect escape sequence.")
 
     @_(r"'")
     def CHAR_CONSTANT_END(self, t: Token):
         assert self._char_const_start is not None
 
         self.pop_state()
-
         start = self._char_const_start
         self._char_const_start = None
         return Token("CONSTANT", self.text[start.index : t.end], start.lineno, start.index, t.end)
 
     @_(r"\n")
     def MISSING_TERMINATOR(self, t: Token):
-        print("ERROR: Missing terminating ' character")
-        self.error(t)
+        self.error(t, "Missing terminating ' character.")
+
+    def error(self, t: Token, msg: str | None = None):
+        if msg is None:
+            msg = f"Illegal character {t.value[0]!r} at index {self.index}."
+        raise LexError(msg, t.value, self.index)
 
 
 class CStringLiteralLexer(Lexer):
+    """Lexer for finding the end of a C string literal.
+
+    Precondition for usage: The start of the string literal was already found and consumed.
+    """
+
     _string_literal_start: Token | None
 
-    tokens = {STRING_LITERAL_END, MISSING_TERMINATOR, STRING}
+    tokens = {STRING_LITERAL_END, MISSING_TERMINATOR, STRING_CHAR}
 
     @_(r'"')
     def STRING_LITERAL_END(self, t: Token):
         assert self._string_literal_start is not None
 
         self.pop_state()
-
         start = self._string_literal_start
         self._string_literal_start = None
         return Token("STRING_LITERAL", self.text[start.index : t.end], start.lineno, start.index, t.end)
 
     @_(r"\n")
     def MISSING_TERMINATOR(self, t: Token):
-        print('ERROR: Missing terminating " character')
-        self.error(t)
+        self.error(t, 'Missing terminating " character.')
 
     @_(r".")
-    def STRING(self, t: Token):
+    def STRING_CHAR(self, t: Token):
         pass
+
+    def error(self, t: Token, msg: str | None = None):
+        if msg is None:
+            msg = f"Illegal character {t.value[0]!r} at index {self.index}."
+        raise LexError(msg, t.value, self.index)

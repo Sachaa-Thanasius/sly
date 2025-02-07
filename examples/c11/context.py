@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from collections import deque
-
 
 class CNameContext:
     def __init__(self, *sets: set[str]):
-        self.sets = deque(sets or [set()])
+        self.sets: list[set[str]] = list(sets) if sets else [set()]
 
     def __contains__(self, key: str, /) -> bool:
         return key in self.sets[-1]

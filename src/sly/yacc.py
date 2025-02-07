@@ -293,7 +293,7 @@ class Production:
 
         # Now, walk through the names and generate accessor functions
         nameuse: Counter[str] = Counter()
-        namemap: dict[str, _t.Callable[[list[YaccSymbol]], object]] = {}
+        namemap: dict[str, _t.Callable[[list[YaccSymbol]], _t.Any]] = {}
         for index, key in enumerate(self.prod):
             if namecount[key] > 1:
                 k = f"{key}{nameuse[key]}"
@@ -310,13 +310,14 @@ class Production:
                         k = alias
 
                     # The value is either a list (for repetition) or a tuple for optional
-                    def _accessor(s: list[YaccSymbol], i: int = index, n: int = n) -> object:
-                        if isinstance(s[i].value, list):
-                            return [x[n] for x in s[i].value]
+                    def _anon_accessor(s: list[YaccSymbol], i: int = index, n: int = n) -> object:
+                        val = s[i].value
+                        if isinstance(val, list):
+                            return [x[n] for x in val]  # pyright: ignore [reportUnknownVariableType]
                         else:
-                            return s[i].value[n]
+                            return val[n]
 
-                    namemap[k] = _accessor
+                    namemap[k] = _anon_accessor
 
         self.namemap = namemap
 
@@ -611,8 +612,7 @@ class Grammar:
         self.Productions.append(p)
         self.Prodmap[map_] = p
 
-        # NOTE: The comment seems outdated, indicating Productions was a global in an earlier revision.
-        # Add to the global productions list
+        # Add to the productions list
         try:
             self.Prodnames[prodname].append(p)
         except KeyError:
@@ -1265,7 +1265,7 @@ class LRTable:
         terms: list[str] = []
 
         g = self.lr0_goto(C[state], N)
-        assert g
+        assert g is not None
         for p in g:
             if p.lr_index < p.len - 1:
                 a = p.prod[p.lr_index + 1]
@@ -1504,7 +1504,7 @@ class LRTable:
         goto = self.lr_goto  # Goto array
         action = self.lr_action  # Action array
 
-        # Step 1: Construct C = { I0, I1, ... IN}, collection of LR(0) items
+        # Step 1: Construct C = { I0, I1, ... IN }, collection of LR(0) items
         # This determines the number of states
 
         C = self.lr0_items()
@@ -1642,13 +1642,13 @@ class LRTable:
             descrip.append("")
 
             # Print the actions that were not used. (debugging)
-            not_used = True
+            used = False
             for a, p, m in actlist:
                 if (a in st_action) and (p is not st_actionp[a]) and ((a, m) not in _actprint):
                     descrip.append(f"  ! {a:<15s} {m}")
                     _actprint.add((a, m))
-                    not_used = False
-            if not_used:
+                    used = True
+            if not used:
                 descrip.append("")
 
             # Construct the goto table for this state
@@ -2290,18 +2290,21 @@ class Parser(metaclass=ParserMeta):
     def parse(self, tokens: _t.Iterator[Token]) -> _t.Any:
         """Parse the given input tokens."""
 
-        #: Current lookahead symbol
+        #Current lookahead symbol
         self.lookahead = None
         #: Stack of lookahead symbols
         lookaheadstack: list[_t.Any] = []
-        #: Local reference to action table (to avoid lookup on self.)
+
+        # Local references (to avoid lookup on self).
+        #: Action table
         actions = self._lrtable.lr_action
-        #: Local reference to goto table (to avoid lookup on self.)
+        #: Goto table
         goto = self._lrtable.lr_goto
-        #: Local reference to production list (to avoid lookup on self.)
+        #: Production list
         prod = self._grammar.Productions
-        #: Local reference to defaulted states
+        #: Defaulted states
         defaulted_states = self._lrtable.defaulted_states
+
         #: Production object passed to grammar rules
         pslice = YaccProduction(None)
         #: Used during error recovery
@@ -2384,8 +2387,9 @@ class Parser(metaclass=ParserMeta):
                             sym.index = None
                             sym.end = None
 
-                        self._line_positions[id(value)] = sym.lineno
-                        self._index_positions[id(value)] = (sym.index, sym.end)
+                        _value_id = id(value)
+                        self._line_positions[_value_id] = sym.lineno
+                        self._index_positions[_value_id] = (sym.index, sym.end)
 
                     if plen:
                         del symstack[-plen:]
