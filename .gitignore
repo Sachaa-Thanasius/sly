@@ -163,9 +163,9 @@ cython_debug/
 
 # -- Project-specific
 # Debug output.
-*.out
-*.dot
+**/*.out
+**/*.dot
 
 # Profiler output.
-*.pstats
-*.svg
+**/*.pstats
+**/*.svg

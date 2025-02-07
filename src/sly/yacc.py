@@ -1098,7 +1098,7 @@ class LRTable:
         Parameters
         ----------
         I: list[LRItem]
-            A set of LR(0) items
+            A set of LR(0) items.
         """
 
         self._add_count += 1
@@ -1120,7 +1120,14 @@ class LRTable:
         return J
 
     def lr0_goto(self, I: list[LRItem], x: str) -> _t.Optional[list[LRItem]]:
-        """Compute the LR(0) goto function goto(I,X) where I is a set of LR(0) items and X is a grammar symbol.
+        """Compute the LR(0) goto function goto(I,X).
+
+        Parameters
+        ----------
+        I: list[LRItem]
+            A set of LR(0) items.
+        x: str
+            A grammar symbol.
 
         Notes
         -----
