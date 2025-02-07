@@ -1735,7 +1735,7 @@ def _collect_grammar_rules(na_state: NameAliasesState, func: _t.Callable[..., _t
         for rule, lineno in zip(func_rules, range(lineno_start + len(func_rules) - 1, 0, -1)):
             syms = rule.split()
             ebnf_prod: list[_RawGrammarRule] = []
-            while ("{" in syms) or ("[" in syms):
+            while ("{" in syms) or ("[" in syms) or any("|" in s for s in syms):
                 for s in syms:
                     if s == "[":
                         syms, prod = _replace_ebnf_optional(na_state, syms)
@@ -1784,9 +1784,17 @@ def _replace_ebnf_optional(na_state: NameAliasesState, syms: list[str]) -> tuple
     syms = list(syms)
     first = syms.index("[")
     end = syms.index("]", first)
-    symname, prods = _generate_optional_rules(na_state, syms[first + 1 : end])
+
+    # Look for choices inside
+    repeated_syms = syms[first + 1 : end]
+    if any("|" in sym for sym in repeated_syms):
+        repeated_syms, prods = _replace_ebnf_choice(na_state, repeated_syms)
+    else:
+        prods = []
+
+    symname, moreprods = _generate_optional_rules(na_state, repeated_syms)
     syms[first : end + 1] = [symname]
-    return syms, prods
+    return syms, prods + moreprods
 
 
 def _replace_ebnf_choice(na_state: NameAliasesState, syms: list[str]) -> tuple[list[str], list[_RawGrammarRule]]:
@@ -2290,7 +2298,7 @@ class Parser(metaclass=ParserMeta):
     def parse(self, tokens: _t.Iterator[Token]) -> _t.Any:
         """Parse the given input tokens."""
 
-        #Current lookahead symbol
+        # Current lookahead symbol
         self.lookahead = None
         #: Stack of lookahead symbols
         lookaheadstack: list[_t.Any] = []
