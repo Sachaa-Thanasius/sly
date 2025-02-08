@@ -38,6 +38,7 @@ __all__ = (
     "Callable",
     "Collection",
     "Generator",
+    "Iterable",
     "Iterator",
     "Any",
     "ClassVar",
@@ -55,6 +56,8 @@ __all__ = (
     "final",
     # Other.
     "CallableT",
+    "T",
+    "U",
     "LoggerLike",
 )
 
@@ -62,10 +65,10 @@ __all__ = (
 def __getattr__(name: str, /) -> object:
     # Save the imported symbols in the global namespace to avoid re-importing in the future.
 
-    if name in {"Callable", "Collection", "Generator", "Iterator"}:
-        global Callable, Collection, Generator, Iterator
+    if name in {"Callable", "Collection", "Generator", "Iterable", "Iterator"}:
+        global Callable, Collection, Generator, Iterable, Iterator
 
-        from collections.abc import Callable, Collection, Generator, Iterator
+        from collections.abc import Callable, Collection, Generator, Iterable, Iterator
 
         return globals()[name]
 
@@ -98,6 +101,16 @@ def __getattr__(name: str, /) -> object:
 
         CallableT = TypeVar("CallableT", bound=Callable[..., Any])
         return CallableT
+
+    if name in {"T", "U"}:
+        global T, U
+
+        from typing import TypeVar
+
+        T = TypeVar("T")
+        U = TypeVar("U")
+
+        return globals()[name]
 
     if name == "LoggerLike":
         global LoggerLike

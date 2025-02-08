@@ -7,7 +7,19 @@ import sys
 from . import _typing_compat as _t
 
 
-__all__ = ("unwrap", "MISSING")
+__all__ = ("MISSING", "unwrap")
+
+
+@_t.final
+class _Missing:
+    __slots__ = ()
+
+    def __repr__(self, /) -> str:
+        return "<MISSING>"
+
+
+MISSING: _t.Final[_t.Any] = _Missing()
+"""Internal sentinel."""
 
 
 def unwrap(
@@ -51,13 +63,26 @@ def unwrap(
     return func
 
 
-@_t.final
-class _Missing:
-    __slots__ = ()
+def unique_everseen(
+    iterable: _t.Iterable[_t.T],
+    key: _t.Optional[_t.Callable[[_t.T], _t.U]] = None,
+) -> _t.Iterator[_t.T]:
+    """An adapted version of `more-itertools.recipes.unique_everseen()`."""
 
-    def __repr__(self, /) -> str:
-        return "<MISSING>"
+    seenset: set[_t.T | _t.U] = set()
+    seenset_add = seenset.add
+    seenlist: list[_t.T | _t.U] = []
+    seenlist_add = seenlist.append
 
+    use_key = key is not None
 
-MISSING: _t.Final[_t.Any] = _Missing()
-"""Internal sentinel."""
+    for element in iterable:
+        k = key(element) if use_key else element
+        try:
+            if k not in seenset:
+                seenset_add(k)
+                yield element
+        except TypeError:
+            if k not in seenlist:
+                seenlist_add(k)
+                yield element
