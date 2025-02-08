@@ -497,7 +497,7 @@ class LRPath:
             buffer = [
                 *[f"{i: <{length}} {j}" for i, j in zip(temp, extension)],
                 *temp[len(extension) :],
-                *[(((length + 1) * " ") + j) for j in extension[len(temp) :]],
+                *[((length + 1) * " ") + j for j in extension[len(temp) :]],
             ]
             length += ext_length + 1
 
@@ -582,7 +582,7 @@ class LRDominanceNode:
                 result = None
                 paths[-1].append(LRPath(node, [], use_marker=False))
                 while paths:
-                    child_paths = paths.pop(-1)
+                    child_paths = paths.pop()
                     if result is not None:
                         child_paths[-1] = child_paths[-1].expand(1, result)
 
@@ -593,10 +593,8 @@ class LRDominanceNode:
 
                 return result
             elif lookahead in first_set[following_symbol]:
-                queue.extend(
-                    (child, paths[:-1] + [paths[-1] + [LRPath(node, [], use_marker=False)]])
-                    for child in sorted(node.direct_children, key=attrgetter("item.len"))
-                )
+                for child in sorted(node.direct_children, key=attrgetter("item.len")):
+                    queue.append((child, paths[:-1] + [paths[-1] + [LRPath(node, [], use_marker=False)]]))
             elif "<empty>" in first_set[following_symbol]:
                 queue.append((node.successor, paths[:-1] + [paths[-1] + [node.expand_empty(first_set)]] + [[]]))
 
@@ -609,6 +607,7 @@ class LRDominanceNode:
         first_set: dict[str, list[str]],
     ) -> list[tuple[LRPath, _t.Optional[str]]]:
         result: list[tuple[LRPath, _t.Optional[str]]] = []
+
         if lookahead is not None:
             try:
                 following_symbol = self.item.prod[self.item.lr_index + 2]
@@ -625,6 +624,7 @@ class LRDominanceNode:
 
                     for p, la in self.successor.filter_node_by_lookahead(successor_path, lookahead, first_set):
                         result.append((path.expand(1, p), la))
+
                 if lookahead in first_set[following_symbol]:
                     assert self.successor is not None
                     successor_path = self.successor.expand_lookahead(lookahead, first_set)
@@ -633,6 +633,7 @@ class LRDominanceNode:
                     result.append((path.expand(1, successor_path), None))
         else:
             result.append((path, lookahead))
+
         return result
 
     def backtrack_up(
@@ -643,14 +644,15 @@ class LRDominanceNode:
         first_set: dict[str, list[str]],
         seen: set[tuple[LRDominanceNode, _t.Optional[str]]],
     ) -> list[tuple[LRPath, str | None]]:
-        """This method will find the fastest path from self to the specified parent state.
+        """Find the fastest path from self to the specified parent state.
 
-        It will only find paths that can be followed by lookahead.
+        This will only find paths that can be followed by lookahead.
         """
 
         queue: deque[tuple[LRPath, _t.Optional[str]]] = deque([(path, lookahead)])
         result: list[tuple[LRPath, _t.Optional[str]]] = []
         shortest_path_seen: set[tuple[_t.Optional[str], LRItemSet, tuple[str, ...]]] = set()
+
         while queue:
             path, lookahead = queue.popleft()
             node = path.node
@@ -672,6 +674,7 @@ class LRDominanceNode:
                         result.append((p, la))
                     else:
                         queue.append((p, la))
+
             for predecessor in node.predecessors:
                 if (predecessor, lookahead) in seen:
                     continue
@@ -703,7 +706,7 @@ class LRItemSet:
         self._core: set[LRDominanceNode] = set()
         self._items: dict[LRItem, LRDominanceNode] = {}
         self.add_core(core)
-        self._lr0_close()
+        self.lr0_close()
 
     def __iter__(self):
         return iter(self._items)
@@ -729,7 +732,7 @@ class LRItemSet:
 
             self._core.add(target_node)
 
-    def _lr0_close(self) -> None:
+    def lr0_close(self) -> None:
         """Compute the LR(0) closure operation on self._items."""
 
         new_items: dict[LRItem, LRDominanceNode] = self._items
