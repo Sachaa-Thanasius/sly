@@ -1,11 +1,10 @@
-"""Types for symbols that only exist during sly class creation, i.e. the  `@_` decorator. Do not import at runtime.
+"""Types for symbols that only exist during sly class creation, i.e. the  `@_` decorator. Do not import at runtime:
+this will intentionally raise an ImportError.
 
 Because the `_` decorator doesn't exist outside of the body of a `sly.Lexer` or `sly.Parser` subclass body, it cannot be
 imported at runtime. However, it can still provide typing and intellisense support if "fake" imported such that
 type-checkers and IDEs can see it but the Python runtime doesn't, e.g. within an `if typing.TYPE_CHECKING: ...` block.
 That's what this module provides.
-
-Importing this module at runtime will intentionally raise an ImportError.
 """
 
 from __future__ import annotations

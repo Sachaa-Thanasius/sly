@@ -114,6 +114,7 @@ class CParser(Parser):
     )
 
     def __init__(self, ctx: CNameContext):
+        super().__init__()
         self.ctx = ctx
 
     @_("")

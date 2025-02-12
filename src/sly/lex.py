@@ -2,9 +2,9 @@
 # -----------------------------------------------------------------------------
 # sly: lex.py
 #
+# Copyright (C) 2024, Sachaa-Thanasius
 # Copyright (C) 2016 - 2018
 # David M. Beazley (Dabeaz LLC)
-# Copyright (C) 2024, Sachaa-Thanasius
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -218,19 +218,14 @@ _TokenMatchAction: _t.TypeAlias = "_t.Callable[[Lexer, Token], _t.Optional[Token
 class LexerMeta(type):
     """Metaclass for collecting lexing rules."""
 
-    if TYPE_CHECKING:
-        # Created by _build().
-        _rules: list[tuple[str, _t.Union[str, _TokenMatchAction]]]
-        _master_re: re.Pattern[str]
-
     @classmethod
-    def __prepare__(cls, name: str, bases: tuple[type, ...], /, **kwds: object) -> LexerMetaDict:
+    def __prepare__(cls, name: str, bases: tuple[type, ...], /, **kwds: _t.Any) -> LexerMetaDict:
         namespace = LexerMetaDict()
         namespace["_"] = _match_action_decorator
         namespace["before"] = _Before
         return namespace
 
-    def __new__(cls, name: str, bases: tuple[type, ...], namespace: LexerMetaDict, /, **kwds: object):
+    def __new__(cls, name: str, bases: tuple[type, ...], namespace: LexerMetaDict, /, **kwds: _t.Any):
         del namespace["_"]
         del namespace["before"]
 
@@ -238,14 +233,13 @@ class LexerMeta(type):
         final_namespace = {str(key): (str(val) if isinstance(val, TokenStr) else val) for key, val in namespace.items()}
         return super().__new__(cls, name, bases, final_namespace, **kwds)
 
-    def __init__(self, name: str, bases: tuple[type, ...], namespace: LexerMetaDict, /, **kwds: object) -> None:
+    def __init__(self, name: str, bases: tuple[type, ...], namespace: LexerMetaDict, /, **kwds: _t.Any) -> None:
         super().__init__(name, bases, namespace, **kwds)
 
         # Attach various metadata to the class
         self._remap: dict[tuple[str, _t.Any], _t.Any] = namespace.remap
         self._before: dict[str, str] = namespace.before
         self._delete: list[str] = namespace.delete
-        self._build(dict(namespace))  # pyright: ignore # This method should always exist in Lexer subclasses.
 
 
 class Lexer(metaclass=LexerMeta):
@@ -277,6 +271,11 @@ class Lexer(metaclass=LexerMeta):
     regex_module = re
 
     # ---- Internal attributes
+    if TYPE_CHECKING:
+        # Created by _build().
+        _rules: list[tuple[str, _t.Union[str, _TokenMatchAction]]]
+        _master_re: re.Pattern[str]
+
     _token_names: _t.ClassVar[set[str]] = set()
     _token_funcs: _t.ClassVar[dict[str, _TokenMatchAction]] = {}
     _ignored_tokens: _t.ClassVar[set[str]] = set()
@@ -298,6 +297,11 @@ class Lexer(metaclass=LexerMeta):
         self.accept: _t.Callable[[], None] = MISSING
         self.reject: _t.Callable[[], None] = MISSING
 
+    def __init_subclass__(cls, /) -> None:
+        """Collect the lexing rules and build the master regular expression."""
+
+        cls._build(vars(cls).copy())
+
     @classmethod
     def _collect_rules(cls, potential_rules: dict[str, _t.Any]) -> None:
         """Collect all of the rules from class definitions that look like token information.
@@ -318,11 +322,9 @@ class Lexer(metaclass=LexerMeta):
         """
 
         # Collect all previous rules from base classes
-        rules: list[tuple[str, _t.Any]] = []
-
-        for base in cls.__bases__:
-            if isinstance(base, LexerMeta):
-                rules.extend(base._rules)
+        rules: list[tuple[str, _t.Any]] = [
+            rule for base in cls.__bases__ if (issubclass(base, Lexer) and base is not Lexer) for rule in base._rules
+        ]
 
         # Dictionary of previous rules
         existing = dict(rules)
@@ -338,7 +340,6 @@ class Lexer(metaclass=LexerMeta):
                     # We replace it, but keep the original ordering.
                     n = rules.index((key, existing[key]))
                     rules[n] = (key, value)
-                    existing[key] = value
 
                 elif isinstance(value, TokenStr) and key in cls._before:
                     before = cls._before[key]
@@ -349,10 +350,11 @@ class Lexer(metaclass=LexerMeta):
                     else:
                         # Put at the end of the rule list
                         rules.append((key, value))
-                    existing[key] = value
+
                 else:
                     rules.append((key, value))
-                    existing[key] = value
+
+                existing[key] = value
 
             elif isinstance(value, str) and not key.startswith("_") and key not in {"ignore", "literals"}:
                 msg = f"{key!r} does not match a name in tokens"
@@ -447,7 +449,7 @@ class Lexer(metaclass=LexerMeta):
     def begin(self, state: type[Lexer]) -> None:
         """Begin a new lexer state."""
 
-        if not isinstance(state, LexerMeta):
+        if not issubclass(state, Lexer):
             msg = "state must be a subclass of Lexer."
             raise TypeError(msg)
 
@@ -516,6 +518,7 @@ class Lexer(metaclass=LexerMeta):
         self.text = text
         try:
             while True:
+                # Case 1: An ignored character.
                 try:
                     if text[index] in _ignore:
                         index += 1
@@ -523,7 +526,7 @@ class Lexer(metaclass=LexerMeta):
                 except IndexError:
                     return
 
-                # Case 1: Found a match.
+                # Case 2: A token match.
                 if m := _master_re.match(text, index):
                     assert m.lastgroup is not None, "There should always be a matched named group."
 
@@ -546,13 +549,13 @@ class Lexer(metaclass=LexerMeta):
 
                     yield tok
 
-                # Case 2: No match, see if the character is in literals.
+                # Case 3: A character literal.
                 elif (value := text[index]) in _literals:
                     tok = Token(value, value, lineno, index, index + 1)
                     index += 1
                     yield tok
 
-                # Case 3: A lexing error.
+                # Case 4: A lexing error.
                 else:
                     self.index, self.lineno = (index, lineno)
 
@@ -571,7 +574,7 @@ class Lexer(metaclass=LexerMeta):
             self.lineno = lineno
 
     def error(self, t: Token) -> _t.Optional[Token]:
-        """Default implementation of the error handler. May be overridden in subclasses."""
+        """Default implementation of the error handler. This may be overridden in subclasses."""
 
         msg = f"Illegal character {t.value[0]!r} at index {self.index}."
         raise LexError(msg, t.value, self.index)

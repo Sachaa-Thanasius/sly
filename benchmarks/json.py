@@ -116,5 +116,5 @@ def bench():
     parser.parse(lexer.tokenize(big))
 
 
-if __name__ == "__main__":
-    bench()
+# if __name__ == "__main__":
+#     bench()
