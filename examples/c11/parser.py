@@ -92,7 +92,7 @@ def {basename}(self, p: Prod): ...
 
 
 class CParser(Parser):
-    debugfile = "examples/c11/parser_debug.out"
+    # debugfile = "examples/c11/parser_debug.out"
 
     start = "translation_unit_file"
 

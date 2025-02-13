@@ -37,7 +37,7 @@
 from __future__ import annotations
 
 import sys
-from collections import Counter
+from collections import Counter, defaultdict, deque
 from itertools import count
 
 from . import _typing_compat as _t
@@ -296,6 +296,7 @@ class Production:
             else:
                 k = key
             namemap[k] = lambda s, i=index: s[i].value
+
             if key in name_aliases:
                 for n, alias in enumerate(name_aliases[key]):
                     if namecount[alias] > 1:
@@ -465,8 +466,8 @@ class Grammar:
         self.Prodmap: dict[str, Production] = {}
         self.Terminals: dict[str, list[int]] = dict({term: [] for term in terminals}, error=[])
         self.Nonterminals: dict[str, list[int]] = {}
-        self.First: dict[str, list[str]] = {}
-        self.Follow: dict[str, list[str]] = {}
+        self.First: dict[str, set[str]] = {}
+        self.Follow: dict[str, set[str]] = {}
         self.Precedence: dict[str, tuple[str, int]] = {}
         self.UsedPrecedence: set[str] = set()
         self.Start: _t.Optional[str] = None
@@ -646,17 +647,21 @@ class Grammar:
             A list of nonterminals that can't be reached.
         """
 
+        reachable: set[str] = set()
+
         # Mark all symbols that are reachable from a symbol s
-        def mark_reachable_from(s: str) -> None:
+        s = self.Productions[0].prod[0]
+
+        stack = deque([s])
+        while stack:
+            s = stack.popleft()
             if s in reachable:
-                return
+                continue
+
             reachable.add(s)
             for p in self.Prodnames.get(s, []):
-                for r in p.prod:
-                    mark_reachable_from(r)
+                stack.extend(p.prod)
 
-        reachable: set[str] = set()
-        mark_reachable_from(self.Productions[0].prod[0])
         return [s for s in self.Nonterminals if s not in reachable]
 
     def infinite_cycles(self) -> list[str]:
@@ -779,25 +784,23 @@ class Grammar:
             if not (term_name in self.Terminals or term_name in self.UsedPrecedence)
         ]
 
-    def _first(self, beta: tuple[str, ...]) -> list[str]:
+    def _first(self, beta: tuple[str, ...]) -> set[str]:
         """Compute the value of FIRST1(beta) where beta is a tuple of symbols.
 
         During execution of `compute_first()`, the result may be incomplete.
         Afterward (e.g., when called from `compute_follow()`), it will be complete.
         """
 
+        _empty = {"<empty>"}
+
         # We are computing First(x1,x2,x3,...,xn)
-        result: list[str] = []
+        result: set[str] = set()
+
         for x in beta:
-            x_produces_empty = False
+            x_produces_empty = "<empty>" in self.First[x]
 
             # Add all the non-<empty> symbols of First[x] to the result.
-            for f in self.First[x]:
-                if f == "<empty>":
-                    x_produces_empty = True
-                else:
-                    if f not in result:
-                        result.append(f)
+            result |= self.First[x] - _empty
 
             if x_produces_empty:
                 # We have to consider the next x in beta, i.e. stay in the loop.
@@ -809,11 +812,11 @@ class Grammar:
             # There was no 'break' from the loop,
             # so x_produces_empty was true for all x in beta,
             # so beta produces empty as well.
-            result.append("<empty>")
+            result.add("<empty>")
 
         return result
 
-    def compute_first(self) -> dict[str, list[str]]:
+    def compute_first(self) -> dict[str, set[str]]:
         """Compute the value of FIRST1(X) for all symbols."""
 
         if self.First:
@@ -821,30 +824,29 @@ class Grammar:
 
         # Terminals:
         for t in self.Terminals:
-            self.First[t] = [t]
-        self.First["$end"] = ["$end"]
+            self.First[t] = {t}
+        self.First["$end"] = {"$end"}
 
         # Nonterminals:
-
-        # Initialize to the empty set:
+        # Initialize to the empty set.
         for n in self.Nonterminals:
-            self.First[n] = []
+            self.First[n] = set()
 
         # Then propagate symbols until no change:
         while True:
             some_change = False
             for n in self.Nonterminals:
-                for p in self.Prodnames[n]:
-                    for f in self._first(p.prod):
-                        if f not in self.First[n]:
-                            self.First[n].append(f)
-                            some_change = True
+                len_before = len(self.First[n])
+                self.First[n].update(*[self._first(p.prod) for p in self.Prodnames[n]])
+                if len_before != len(self.First[n]):
+                    some_change = True
+
             if not some_change:
                 break
 
         return self.First
 
-    def compute_follow(self, start: _t.Optional[str] = None) -> dict[str, list[str]]:
+    def compute_follow(self, start: _t.Optional[str] = None) -> dict[str, set[str]]:
         """Computes all of the follow sets for every non-terminal symbol.
 
         Notes
@@ -863,12 +865,14 @@ class Grammar:
 
         # Add '$end' to the follow list of the start symbol
         for k in self.Nonterminals:
-            self.Follow[k] = []
+            self.Follow[k] = set()
 
         if not start:
             start = self.Productions[1].name
 
-        self.Follow[start] = ["$end"]
+        self.Follow[start] = {"$end"}
+
+        _empty = {"<empty>"}
 
         while True:
             didadd = False
@@ -878,19 +882,17 @@ class Grammar:
                     if B in self.Nonterminals:
                         # Okay. We got a non-terminal in a production
                         fst = self._first(p.prod[i + 1 :])
-                        hasempty = False
-                        for f in fst:
-                            if f != "<empty>" and f not in self.Follow[B]:
-                                self.Follow[B].append(f)
-                                didadd = True
-                            if f == "<empty>":
-                                hasempty = True
-                        if hasempty or i == (len(p.prod) - 1):
+                        len_before = len(self.Follow[B])
+                        self.Follow[B] |= fst - _empty
+                        if len_before != len(self.Follow[B]):
+                            didadd = True
+
+                        if ("<empty>" in fst) or i == (len(p.prod) - 1):
                             # Add elements of follow(a) to follow(b)
-                            for f in self.Follow[p.name]:
-                                if f not in self.Follow[B]:
-                                    self.Follow[B].append(f)
-                                    didadd = True
+                            len_before = len(self.Follow[B])
+                            self.Follow[B] |= self.Follow[p.name]
+                            if len_before != len(self.Follow[B]):
+                                didadd = True
             if not didadd:
                 break
         return self.Follow
@@ -964,14 +966,14 @@ class Grammar:
 
 
 _RelationFunction: _t.TypeAlias = "_t.Callable[[tuple[int, str]], list[tuple[int, str]]]"
-_SetValuedFunction: _t.TypeAlias = "_t.Callable[[tuple[int, str]], list[str]]"
+_SetValuedFunction: _t.TypeAlias = "_t.Callable[[tuple[int, str]], set[str]]"
 
 
 def digraph(
-    X: list[tuple[int, str]],
+    X: set[tuple[int, str]],
     R: _RelationFunction,
     FP: _SetValuedFunction,
-) -> dict[tuple[int, str], list[str]]:
+) -> dict[tuple[int, str], set[str]]:
     """First helper for computing set valued functions of the form ``F(x) = F'(x) U U{F(y) | x R y}``.
 
     This is used to compute the values of Read() sets as well as FOLLOW sets in LALR(1) generation.
@@ -992,7 +994,7 @@ def digraph(
 
     N = dict.fromkeys(X, 0)
     stack: list[tuple[int, str]] = []
-    F: dict[tuple[int, str], list[str]] = {}
+    F: dict[tuple[int, str], set[str]] = {}
     for x in X:
         if N[x] == 0:
             traverse(x, N, stack, F, X, R, FP)
@@ -1003,8 +1005,8 @@ def traverse(
     x: tuple[int, str],
     N: dict[tuple[int, str], int],
     stack: list[tuple[int, str]],
-    F: dict[tuple[int, str], list[str]],
-    X: list[tuple[int, str]],
+    F: dict[tuple[int, str], set[str]],
+    X: set[tuple[int, str]],
     R: _RelationFunction,
     FP: _SetValuedFunction,
 ) -> None:
@@ -1018,8 +1020,7 @@ def traverse(
     """
 
     stack.append(x)
-    d = len(stack)
-    N[x] = d
+    N[x] = d = len(stack)
     F[x] = FP(x)  # F(X) <- F'(x)
 
     rel = R(x)  # Get y's related to x
@@ -1027,9 +1028,8 @@ def traverse(
         if N[y] == 0:
             traverse(y, N, stack, F, X, R, FP)
         N[x] = min(N[x], N[y])
-        for a in F.get(y, []):
-            if a not in F[x]:
-                F[x].append(a)
+        if y in F:
+            F[x] |= F[y]
     if N[x] == d:
         N[stack[-1]] = sys.maxsize
         F[stack[-1]] = F[x]
@@ -1168,7 +1168,7 @@ class LRTable:
 
         C = [self.lr0_closure([self.grammar.Productions[0].lr_next])]
 
-        self.lr0_cidhash.update({id(I): i for i, I in enumerate(C)})
+        self.lr0_cidhash |= {id(I): i for i, I in enumerate(C)}
 
         # Loop over the items in C and each grammar symbols
         for I in C:
@@ -1219,7 +1219,7 @@ class LRTable:
             num_nullable = len(nullable)
         return nullable
 
-    def find_nonterminal_transitions(self, C: list[list[LRItem]]) -> list[tuple[int, str]]:
+    def find_nonterminal_transitions(self, C: list[list[LRItem]]) -> set[tuple[int, str]]:
         """Given a set of LR(0) items, this functions finds all of the non-terminal transitions.
 
         Non-terminal transitions are transitions in which a dot appears immediately before a non-terminal.
@@ -1231,21 +1231,21 @@ class LRTable:
 
         Returns
         -------
-        list[tuple[int, str]]
-            The list of nonterminal transitions, which are tuples of the form (state,N) where state is the state number
+        set[tuple[int, str]]
+            The set of nonterminal transitions, which are tuples of the form (state,N) where state is the state number
             and N is the nonterminal symbol.
         """
 
-        transitions: list[tuple[int, str]] = []
-        for stateno, state in enumerate(C):
-            for p in state:
-                if p.lr_index < (p.len - 1):
-                    t = (stateno, p.prod[p.lr_index + 1])
-                    if t[1] in self.grammar.Nonterminals and t not in transitions:
-                        transitions.append(t)
-        return transitions
+        return {
+            tran
+            for stateno, state in enumerate(C)
+            for p in state
+            if p.lr_index < (p.len - 1)
+            and (tran := (stateno, p.prod[p.lr_index + 1]))
+            and tran[1] in self.grammar.Nonterminals
+        }
 
-    def dr_relation(self, C: list[list[LRItem]], trans: tuple[int, str], nullable: set[str]) -> list[str]:
+    def dr_relation(self, C: list[list[LRItem]], trans: tuple[int, str], nullable: set[str]) -> set[str]:
         """Computes the DR(p,A) relationships for non-terminal transitions.
 
         Parameters
@@ -1259,24 +1259,19 @@ class LRTable:
 
         Returns
         -------
-        terms: list[str]
-            A list of terminals.
+        terms: set[str]
+            A set of terminals.
         """
 
         state, N = trans
-        terms: list[str] = []
 
         g = self.lr0_goto(C[state], N)
         assert g is not None
-        for p in g:
-            if p.lr_index < p.len - 1:
-                a = p.prod[p.lr_index + 1]
-                if a in self.grammar.Terminals and a not in terms:
-                    terms.append(a)
+        terms = {a for p in g if p.lr_index < (p.len - 1) and (a := p.prod[p.lr_index + 1]) in self.grammar.Terminals}
 
         # This extra bit is to handle the start state
         if state == 0 and self.grammar.Productions[0].prod[0] == N:
-            terms.append("$end")
+            terms.add("$end")
 
         return terms
 
@@ -1301,9 +1296,12 @@ class LRTable:
     def compute_lookback_includes(
         self,
         C: list[list[LRItem]],
-        trans: list[tuple[int, str]],
+        trans: set[tuple[int, str]],
         nullable: set[str],
-    ) -> tuple[dict[tuple[int, str], list[tuple[int, LRItem]]], dict[tuple[int, str], list[tuple[int, str]]]]:
+    ) -> tuple[
+        dict[tuple[int, str], list[tuple[int, LRItem]]],
+        dict[tuple[int, str], list[tuple[int, str]]],
+    ]:
         """Determines the lookback and includes relations.
 
         Notes
@@ -1327,8 +1325,10 @@ class LRTable:
         State p' must lead to state p with the string L.
         """
 
-        lookdict: dict[tuple[int, str], list[tuple[int, LRItem]]] = {}  # Dictionary of lookback relations
-        includedict: dict[tuple[int, str], list[tuple[int, str]]] = {}  # Dictionary of include relations
+        # Dictionary of lookback relations
+        lookdict: dict[tuple[int, str], list[tuple[int, LRItem]]] = {}
+        # Dictionary of include relations
+        includedict: defaultdict[tuple[int, str], list[tuple[int, str]]] = defaultdict(list)
 
         # Make a dictionary of non-terminal transitions
         dtrans = dict.fromkeys(trans, 1)
@@ -1343,11 +1343,8 @@ class LRTable:
 
                 # Okay, we have a name match. We now follow the production all the way
                 # through the state machine until we get the . on the right hand side
-
-                lr_index = p.lr_index
                 j = state
-                while lr_index < (p.len - 1):
-                    lr_index += 1
+                for lr_index in range(p.lr_index + 1, p.len):
                     t = p.prod[lr_index]
 
                     # Check to see if this symbol and state are a non-terminal transition
@@ -1375,29 +1372,30 @@ class LRTable:
                     if r.len != p.len:
                         continue
                     # This look is comparing a production ". A B C" with "A B C ."
-                    if all(r.prod[i] == p.prod[i + 1] for i in range(r.lr_index)):
+                    if r.prod[: r.lr_index] == p.prod[1 : r.lr_index + 1]:
                         lookb.append((j, r))
+
             for i in includes:
-                if i not in includedict:
-                    includedict[i] = []
                 includedict[i].append((state, N))
             lookdict[(state, N)] = lookb
+
+        includedict.default_factory = None
 
         return lookdict, includedict
 
     def compute_read_sets(
         self,
         C: list[list[LRItem]],
-        ntrans: list[tuple[int, str]],
+        ntrans: set[tuple[int, str]],
         nullable: set[str],
-    ) -> dict[tuple[int, str], list[str]]:
+    ) -> dict[tuple[int, str], set[str]]:
         """Given a set of LR(0) items, this function computes the read sets.
 
         Parameters
         ----------
         C: list[list[LRItem]]
             Set of LR(0) items.
-        ntrans: list[tuple[int, str]]
+        ntrans: set[tuple[int, str]]
             Set of nonterminal transitions.
         nullable: set[str]
             Set of empty transitions.
@@ -1408,7 +1406,7 @@ class LRTable:
             A set containing the read sets.
         """
 
-        def FP(x: tuple[int, str]) -> list[str]:
+        def FP(x: tuple[int, str]) -> set[str]:
             return self.dr_relation(C, x, nullable)
 
         def R(x: tuple[int, str]) -> list[tuple[int, str]]:
@@ -1419,18 +1417,18 @@ class LRTable:
 
     def compute_follow_sets(
         self,
-        ntrans: list[tuple[int, str]],
-        readsets: dict[tuple[int, str], list[str]],
+        ntrans: set[tuple[int, str]],
+        readsets: dict[tuple[int, str], set[str]],
         inclsets: dict[tuple[int, str], list[tuple[int, str]]],
-    ) -> dict[tuple[int, str], list[str]]:
+    ) -> dict[tuple[int, str], set[str]]:
         """Given a set of LR(0) items, a set of non-terminal transitions, a readset, and an include set, this function
         computes the follow sets: ``Follow(p,A) = Read(p,A) U U {Follow(p',B) | (p,A) INCLUDES (p',B)}``.
 
         Parameters
         ----------
-        ntrans: list[tuple[int, str]]
+        ntrans: set[tuple[int, str]]
             Set of nonterminal transitions.
-        readsets: dict[tuple[int, str], list[str]]
+        readsets: dict[tuple[int, str], set[str]]
             Readset (previously computed).
         inclsets: dict[tuple[int, str], list[tuple[int, str]]]
             Include sets (previously computed).
@@ -1452,7 +1450,7 @@ class LRTable:
     def add_lookaheads(
         self,
         lookbacks: dict[tuple[int, str], list[tuple[int, LRItem]]],
-        followset: dict[tuple[int, str], list[str]],
+        followset: dict[tuple[int, str], set[str]],
     ) -> None:
         """Attaches the lookahead symbols to grammar rules.
 
@@ -1471,9 +1469,15 @@ class LRTable:
         for trans, lb in lookbacks.items():
             # Loop over productions in lookback
             for state, p in lb:
-                la = p.lookaheads.setdefault(state, set())
-                f = followset.get(trans, [])
-                la.update(f)
+                try:
+                    la = p.lookaheads[state]
+                except KeyError:
+                    la = p.lookaheads[state] = set()
+
+                try:
+                    la |= followset[trans]
+                except KeyError:
+                    pass
 
     def add_lalr_lookaheads(self, C: list[list[LRItem]]) -> None:
         """This function does all of the work of adding lookahead information for use with LALR parsing."""
