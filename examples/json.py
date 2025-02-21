@@ -1,16 +1,12 @@
 # ruff: noqa: F811, F821, RUF012, ANN201
 # pyright: basic, reportUndefinedVariable=none, reportRedeclaration=none
 
-"""Simple benchmark adapted from python-parsing-benchmarks.
-
-Run with the following commands::
-
-    python -m pip install -U yelp-gprof2dot
-    python -m cProfile -o benchmarks/log.pstats -m benchmarks.json run
-    gprof2dot benchmarks/log.pstats [-z <module_name>:<line_no>:<function_name>] | dot -Tsvg -o benchmarks/log.svg
-"""
+"""json.py: Simple json example adapted from python-parsing-benchmarks for use in benchmarking."""
 
 from __future__ import annotations
+
+import linecache
+import tracemalloc
 
 from sly import Lexer, Parser
 from sly.lex import Token
@@ -85,7 +81,7 @@ class JsonParser(Parser):
     def value(self, p: Prod):
         return p[0]
 
-    def error(self, token):  # noqa: ANN001
+    def error(self, token):
         raise ValueError(token)
 
 
@@ -112,9 +108,45 @@ obj = [
 big = "[" + ",".join(5000 * obj) + "]"
 
 
+def display_top(snapshot: tracemalloc.Snapshot, key_type="lineno", limit=10):
+    # Pretty top: Copied from the tracemalloc docs.
+
+    snapshot = snapshot.filter_traces(
+        (
+            tracemalloc.Filter(False, "<frozen importlib._bootstrap>"),
+            tracemalloc.Filter(False, "<unknown>"),
+        )
+    )
+    top_stats = snapshot.statistics(key_type)
+
+    print(f"Top {limit} lines")
+    for index, stat in enumerate(top_stats[:limit], 1):
+        frame = stat.traceback[0]
+        print(f"#{index}: {frame.filename}:{frame.lineno}: {stat.size / 1024:.1f} KiB")
+        line = linecache.getline(frame.filename, frame.lineno).strip()
+        if line:
+            print(f"    {line}")
+
+    other = top_stats[limit:]
+    if other:
+        size = sum(stat.size for stat in other)
+        print(f"{len(other)} other: {size / 1024:.1f} KiB")
+    total = sum(stat.size for stat in top_stats)
+    print(f"Total allocated size: {total / 1024:.1f} KiB")
+
+
+def profile_memory():
+    tracemalloc.start()
+
+    parser.parse(lexer.tokenize(big))
+
+    snapshot = tracemalloc.take_snapshot()
+    display_top(snapshot)
+
+
 def bench():
     parser.parse(lexer.tokenize(big))
 
 
-# if __name__ == "__main__":
-#     bench()
+if __name__ == "__main__":
+    bench()

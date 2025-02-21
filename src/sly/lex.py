@@ -100,18 +100,12 @@ class Token:
 
     __slots__ = ("type", "value", "lineno", "index", "end")
 
-    type: str
-    value: _t.Any
-    lineno: int
-    index: int
-    end: int
-
-    def __init__(self, type: str, value: _t.Any, lineno: int, index: int, end: int = -1, /):  # noqa: A002
-        self.type = type
-        self.value = value
-        self.lineno = lineno
-        self.index = index
-        self.end = end
+    def __init__(self, type: str, value: _t.Any, lineno: int, index: int, end: int = -1):  # noqa: A002
+        self.type: str = type
+        self.value: _t.Any = value
+        self.lineno: int = lineno
+        self.index: int = index
+        self.end: int = end
 
     def __repr__(self, /):
         return (
@@ -188,7 +182,7 @@ class LexerMetaDict(dict[str, _t.Any] if TYPE_CHECKING else dict):
         else:
             return super().__delitem__(key)
 
-    def __missing__(self, key: str) -> TokenStr:
+    def __missing__(self, key: str, /) -> TokenStr:
         if key.split("ignore_")[-1].isupper() and key[:1] != "_":
             return TokenStr(key, key, self.remap)
         else:
@@ -269,12 +263,13 @@ class Lexer(metaclass=LexerMeta):
     """Optional flags to supply to the used regex compiler. Equivalent to the flags parameter in `re` functions."""
 
     regex_module = re
+    """The regex module to use as the regex compiler. Defaults to `re`."""
 
     # ---- Internal attributes
     if TYPE_CHECKING:
-        # Created by _build().
-        _rules: list[tuple[str, _t.Union[str, _TokenMatchAction]]]
-        _master_re: re.Pattern[str]
+        # Created by _build(), called in __init_subclass__().
+        _rules: _t.ClassVar[list[tuple[str, _t.Union[str, _TokenMatchAction]]]]
+        _master_re: _t.ClassVar[re.Pattern[str]]
 
     _token_names: _t.ClassVar[set[str]] = set()
     _token_funcs: _t.ClassVar[dict[str, _TokenMatchAction]] = {}
@@ -283,8 +278,8 @@ class Lexer(metaclass=LexerMeta):
     _delete: _t.ClassVar[list[str]] = []
     _remap: _t.ClassVar[dict[tuple[str, _t.Any], _t.Any]] = {}
 
-    __state_stack: _t.Optional[list[type[Lexer]]] = None
-    __set_state: _t.Optional[_t.Callable[[type[Lexer]], None]] = None
+    __state_stack: _t.ClassVar[_t.Optional[list[type[Lexer]]]] = None
+    __set_state: _t.ClassVar[_t.Optional[_t.Callable[[type[Lexer]], None]]] = None
 
     def __init__(self) -> None:
         # ---- Public interface

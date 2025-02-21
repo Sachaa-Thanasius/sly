@@ -41,7 +41,7 @@ from collections import Counter, defaultdict, deque
 from itertools import count
 
 from . import _typing_compat as _t
-from ._util import MISSING, unwrap as inspect_unwrap
+from ._util import MISSING
 from .lex import Token
 
 
@@ -49,6 +49,47 @@ TYPE_CHECKING = False
 
 
 __all__ = ("Parser",)
+
+
+def _inspect_unwrap(
+    func: _t.Callable[..., _t.Any],
+    *,
+    stop: _t.Optional[_t.Callable[[_t.Callable[..., _t.Any]], _t.Any]] = None,
+) -> _t.Any:  # pragma: no cover
+    """A adapted version of `inspect.unwrap()` to avoid depending on `inspect` at runtime.
+
+    See the original docstring below:
+
+    Get the object wrapped by *func*.
+
+    Follows the chain of :attr:`__wrapped__` attributes returning the last
+    object in the chain.
+
+    *stop* is an optional callback accepting an object in the wrapper chain
+    as its sole argument that allows the unwrapping to be terminated early if
+    the callback returns a true value. If the callback never returns a true
+    value, the last object in the chain is returned as usual. For example,
+    :func:`signature` uses this to stop unwrapping if any object in the
+    chain has a ``__signature__`` attribute defined.
+
+    :exc:`ValueError` is raised if a cycle is encountered.
+    """
+
+    f = func  # remember the original func for error reporting
+    # Memoise by id to tolerate non-hashable objects, but store objects to
+    # ensure they aren't destroyed, which would allow their IDs to be reused.
+    memo = {id(f): f}
+    recursion_limit = sys.getrecursionlimit()
+    while not isinstance(func, type) and hasattr(func, "__wrapped__"):
+        if stop is not None and stop(func):
+            break
+        func = func.__wrapped__  # pyright: ignore [reportFunctionMemberAccess] # Part of the function's operation.
+        id_func = id(func)
+        if (id_func in memo) or (len(memo) >= recursion_limit):
+            msg = f"wrapper loop when unwrapping {f!r}"
+            raise ValueError(msg)
+        memo[id_func] = func
+    return func
 
 
 class YaccError(Exception):
@@ -84,36 +125,37 @@ class SlyLogger:
 class YaccSymbol:
     """This class is used to hold non-terminal grammar symbols during parsing.
 
+    It is intentionally duck type–compatible with `lex.Token`.
+
     Attributes
     ----------
     type: str
         Grammar symbol type.
     value: _t.Any
         Symbol value.
-    lineno: int
-        Starting line number. May not exist.
-    index: int
-        Starting lex position. May not exist.
+    lineno: int | None
+        Starting line number.
+    index: int | None
+        Starting lex position.
     end: int | None
-        Ending lex position. May not exist.
-
-    Notes
-    -----
-    Instances *usually* have the documented attributes, but only the `type` and `value` attributes are guaranteed to
-    exist.
-
-    Also, this is meant be mostly duck type–compatible with `lex.Token`.
+        Ending lex position.
     """
 
-    if TYPE_CHECKING:
-        lineno: _t.Optional[int]
-        index: _t.Optional[int]
-        end: _t.Optional[int]
+    __slots__ = ("type", "value", "lineno", "index", "end")
 
-    def __init__(self, *, type: str, value: _t.Any = MISSING) -> None:  # noqa: A002
+    def __init__(
+        self,
+        type: str,  # noqa: A002
+        value: _t.Any = None,
+        lineno: _t.Optional[int] = None,
+        index: _t.Optional[int] = None,
+        end: _t.Optional[int] = None,
+    ) -> None:
         self.type: str = type
-        if value is not MISSING:
-            self.value = value
+        self.value: _t.Any = value
+        self.lineno: _t.Optional[int] = lineno
+        self.index: _t.Optional[int] = index
+        self.end: _t.Optional[int] = end
 
     def __str__(self) -> str:
         return self.type
@@ -129,6 +171,10 @@ class YaccProduction:
     -----
     Index lookup and assignment actually assign the `.value` attribute of the underlying `YaccSymbol` object.
     """
+
+    # In this case, slots conveniently prevent attempts to assign to proxied attributes. A much slower alternative is a
+    # custom __setattr__ that calls super().__setattr__ if the attribute name begins with an underscore, but otherwise
+    # raises.
 
     __slots__ = ("_slice", "_namemap", "_stack")
 
@@ -148,38 +194,35 @@ class YaccProduction:
         """
 
         for tok in self._slice:
-            if lineno := getattr(tok, "lineno", None):
-                return lineno
+            if tok.lineno:
+                return tok.lineno
         msg = "No line number found."
         raise AttributeError(msg)
 
     @property
-    def index(self) -> _t.Any:
+    def index(self) -> int:
         for tok in self._slice:
-            if (index := getattr(tok, "index", None)) is not None:
-                return index
+            if tok.index is not None:
+                return tok.index
         msg = "No index attribute found."
         raise AttributeError(msg)
 
     @property
-    def end(self) -> _t.Any:
-        for tok in reversed(self._slice):
-            if result := getattr(tok, "end", None):
-                return result
-        return None
+    def end(self) -> _t.Optional[int]:
+        return next((tok.end for tok in reversed(self._slice) if tok.end), None)
 
     def __getitem__(self, index: int, /) -> _t.Any:
         if index >= 0:
             return self._slice[index].value
         else:
-            assert self._stack is not None
+            assert self._stack
             return self._stack[index].value
 
     def __setitem__(self, n: int, value: _t.Any, /) -> None:
         if n >= 0:
             self._slice[n].value = value
         else:
-            assert self._stack is not None
+            assert self._stack
             self._stack[n].value = value
 
     def __len__(self) -> int:
@@ -190,13 +233,6 @@ class YaccProduction:
             return self._namemap[name](self._slice)
         else:
             msg = f"No symbol {name}. Must be one of {{{', '.join(self._namemap)}}}."
-            raise AttributeError(msg)
-
-    def __setattr__(self, name: str, value: object, /) -> None:
-        if name[:1] == "_":
-            return super().__setattr__(name, value)
-        else:
-            msg = f"Can't reassign the value of attribute {name!r}."
             raise AttributeError(msg)
 
 
@@ -392,7 +428,7 @@ class LRItem:
         Length of the production (number of symbols on right hand side).
     lr_after: list[Production]
         List of all productions that immediately follow.
-    lr_before: str
+    lr_before: str | None
         Grammar symbol immediately before.
     """
 
@@ -461,7 +497,7 @@ class Grammar:
     """
 
     def __init__(self, terminals: _t.Collection[str]) -> None:
-        self.Productions: list[Production] = [None]  # pyright: ignore # Reserved spot.
+        self.Productions: list[Production] = [None]  # pyright: ignore [reportAttributeAccessIssue] # Reserved spot.
         self.Prodnames: dict[str, list[Production]] = {}
         self.Prodmap: dict[str, Production] = {}
         self.Terminals: dict[str, list[int]] = dict({term: [] for term in terminals}, error=[])
@@ -638,31 +674,32 @@ class Grammar:
         self.Nonterminals[start].append(0)
         self.Start = start
 
-    def find_unreachable(self) -> list[str]:
+    def find_unreachable(self) -> set[str]:
         """Find all of the nonterminal symbols that can't be reached from the starting symbol.
 
         Returns
         -------
-        list[str]
-            A list of nonterminals that can't be reached.
+        set[str]
+            A set of nonterminals that can't be reached.
         """
 
         reachable: set[str] = set()
 
-        # Mark all symbols that are reachable from a symbol s
-        s = self.Productions[0].prod[0]
-
-        stack = deque([s])
+        # Mark all symbols that are reachable from the start symbol.
+        stack = deque([self.Productions[0].prod[0]])
         while stack:
             s = stack.popleft()
             if s in reachable:
                 continue
 
             reachable.add(s)
-            for p in self.Prodnames.get(s, []):
-                stack.extend(p.prod)
+            try:
+                for p in self.Prodnames[s]:
+                    stack.extend(p.prod)
+            except KeyError:
+                pass
 
-        return [s for s in self.Nonterminals if s not in reachable]
+        return set(self.Nonterminals) - reachable
 
     def infinite_cycles(self) -> list[str]:
         """This function looks at the various parsing rules and tries to detect infinite recursion cycles.
@@ -675,16 +712,14 @@ class Grammar:
 
         terminates: dict[str, bool] = {}
 
-        # Terminals:
+        # Terminals: Initialize to true.
         for t in self.Terminals:
             terminates[t] = True
         terminates["$end"] = True
 
-        # Nonterminals:
-
-        # Initialize to false:
-        for t in self.Nonterminals:
-            terminates[t] = False
+        # Nonterminals: Initialize to false.
+        for n in self.Nonterminals:
+            terminates[n] = False
 
         # Then propagate termination until no change:
         while True:
@@ -693,19 +728,7 @@ class Grammar:
                 # Nonterminal n terminates iff any of its productions terminates.
                 for p in pl:
                     # Production p terminates iff all of its rhs symbols terminate.
-                    for s in p.prod:
-                        if not terminates[s]:
-                            # The symbol s does not terminate,
-                            # so production p does not terminate.
-                            p_terminates = False
-                            break
-                    else:
-                        # didn't break from the loop,
-                        # so every symbol s terminates
-                        # so production p terminates.
-                        p_terminates = True
-
-                    if p_terminates:
+                    if all(terminates[s] for s in p.prod):
                         # symbol n terminates!
                         if not terminates[n]:
                             terminates[n] = True
@@ -822,13 +845,12 @@ class Grammar:
         if self.First:
             return self.First
 
-        # Terminals:
+        # Terminals: Initialize to a set with just the terminal.
         for t in self.Terminals:
             self.First[t] = {t}
         self.First["$end"] = {"$end"}
 
-        # Nonterminals:
-        # Initialize to the empty set.
+        # Nonterminals: Initialize to the empty set.
         for n in self.Nonterminals:
             self.First[n] = set()
 
@@ -836,9 +858,9 @@ class Grammar:
         while True:
             some_change = False
             for n in self.Nonterminals:
-                len_before = len(self.First[n])
+                num_before = len(self.First[n])
                 self.First[n].update(*[self._first(p.prod) for p in self.Prodnames[n]])
-                if len_before != len(self.First[n]):
+                if num_before != len(self.First[n]):
                     some_change = True
 
             if not some_change:
@@ -863,10 +885,10 @@ class Grammar:
         if not self.First:
             self.compute_first()
 
-        # Add '$end' to the follow list of the start symbol
         for k in self.Nonterminals:
             self.Follow[k] = set()
 
+        # Add '$end' to the follow list of the start symbol
         if not start:
             start = self.Productions[1].name
 
@@ -882,16 +904,16 @@ class Grammar:
                     if B in self.Nonterminals:
                         # Okay. We got a non-terminal in a production
                         fst = self._first(p.prod[i + 1 :])
-                        len_before = len(self.Follow[B])
+                        num_before = len(self.Follow[B])
                         self.Follow[B] |= fst - _empty
-                        if len_before != len(self.Follow[B]):
+                        if num_before != len(self.Follow[B]):
                             didadd = True
 
                         if ("<empty>" in fst) or i == (len(p.prod) - 1):
                             # Add elements of follow(a) to follow(b)
-                            len_before = len(self.Follow[B])
+                            num_before = len(self.Follow[B])
                             self.Follow[B] |= self.Follow[p.name]
-                            if len_before != len(self.Follow[B]):
+                            if num_before != len(self.Follow[B]):
                                 didadd = True
             if not didadd:
                 break
@@ -942,12 +964,11 @@ class Grammar:
             out.extend(f"    {term}" for term in unused_terminals)
 
         out.append("\nTerminals, with rules where they appear:\n")
-        out.extend(f"{term} : {' '.join(str(s) for s in self.Terminals[term])}" for term in sorted(self.Terminals))
+        out.extend(f"{term} : {' '.join(map(str, self.Terminals[term]))}" for term in sorted(self.Terminals))
 
         out.append("\nNonterminals, with rules where they appear:\n")
         out.extend(
-            f"{nonterm} : {' '.join(str(s) for s in self.Nonterminals[nonterm])}"
-            for nonterm in sorted(self.Nonterminals)
+            f"{nonterm} : {' '.join(map(str, self.Nonterminals[nonterm]))}" for nonterm in sorted(self.Nonterminals)
         )
 
         out.append("")
@@ -1069,8 +1090,14 @@ class LRTable:
 
         # Build the tables
         self.grammar.build_lritems()
-        self.grammar.compute_first()
-        self.grammar.compute_follow()
+
+        # TODO: Create an SLR or LR-specific grammar class and table class that use the first and follow functions
+        # based on how they worked in ply (see the last few commits where a bunch of the related machinery was removed).
+        # For the LALR parsing that LRTable currently does, they are useless.
+
+        # self.grammar.compute_first()
+        # self.grammar.compute_follow()
+
         self.lr_parse_table()
 
         # Build default states
@@ -1206,13 +1233,13 @@ class LRTable:
     # -----------------------------------------------------------------------------
 
     def compute_nullable_nonterminals(self) -> set[str]:
-        """Creates a dictionary containing all of the non-terminals that might produce an empty production."""
+        """Creates a set containing all of the non-terminals that might produce an empty production."""
 
         nullable: set[str] = set()
         num_nullable = 0
         while True:
             for p in self.grammar.Productions[1:]:
-                if p.len == 0 or all(t in nullable for t in p.prod):
+                if p.len == 0 or nullable.issuperset(p.prod):
                     nullable.add(p.name)
             if len(nullable) == num_nullable:
                 break
@@ -1732,7 +1759,7 @@ def _collect_grammar_rules(na_state: NameAliasesState, func: _t.Callable[..., _t
     curr_func: _t.Optional[_t.Callable[..., _t.Any]] = func
     while curr_func:
         prodname = curr_func.__name__
-        unwrapped = inspect_unwrap(curr_func)
+        unwrapped = _inspect_unwrap(curr_func)
         filename: str = unwrapped.__code__.co_filename
         lineno_start: int = unwrapped.__code__.co_firstlineno
         func_rules = _t.cast(list[str], curr_func.rules)  # pyright: ignore # Pre-confirmed .rules exists.
@@ -2070,7 +2097,7 @@ class Parser(metaclass=ParserMeta):
         # Stack of parsing states
         self.statestack: list[int] = [0]
         # Stack of grammar symbols
-        self.symstack: list[YaccSymbol] = [YaccSymbol(type="$end")]
+        self.symstack: list[YaccSymbol] = [YaccSymbol("$end")]
         # Position tracker: id -> lineno
         self._line_positions: dict[int, _t.Optional[int]] = {}
         # Position tracker: id -> (start, end)
@@ -2082,7 +2109,7 @@ class Parser(metaclass=ParserMeta):
         """Collect the parser rules, build the grammar, and build the tables."""
 
         super().__init_subclass__()
-        cls._build(list(vars(cls).items()))
+        cls._build(vars(cls).copy())
 
     @classmethod
     def __validate_tokens(cls) -> bool:
@@ -2184,12 +2211,12 @@ class Parser(metaclass=ParserMeta):
 
         if len(unused_terminals) == 1:
             cls.log.warning("There is 1 unused token")
-        if len(unused_terminals) > 1:
+        elif len(unused_terminals) > 1:
             cls.log.warning("There are %d unused tokens", len(unused_terminals))
 
         if len(unused_rules) == 1:
             cls.log.warning("There is 1 unused rule")
-        if len(unused_rules) > 1:
+        elif len(unused_rules) > 1:
             cls.log.warning("There are %d unused rules", len(unused_rules))
 
         unreachable = grammar.find_unreachable()
@@ -2214,39 +2241,33 @@ class Parser(metaclass=ParserMeta):
         """Build the LR Parsing tables from the grammar."""
 
         lrtable = LRTable(cls._grammar)
-        num_sr = len(lrtable.sr_conflicts)
 
         # Report shift/reduce and reduce/reduce conflicts
-        if num_sr != getattr(cls, "expected_shift_reduce", None):
-            if num_sr == 1:
-                cls.log.warning("1 shift/reduce conflict")
-            elif num_sr > 1:
-                cls.log.warning("%d shift/reduce conflicts", num_sr)
+        num_sr = len(lrtable.sr_conflicts)
+        if num_sr != getattr(cls, "expected_shift_reduce", None) and num_sr >= 1:
+            cls.log.warning("%d shift/reduce conflict%s", num_sr, "s" * (num_sr > 1))
 
         num_rr = len(lrtable.rr_conflicts)
-        if num_rr != getattr(cls, "expected_reduce_reduce", None):
-            if num_rr == 1:
-                cls.log.warning("1 reduce/reduce conflict")
-            elif num_rr > 1:
-                cls.log.warning("%d reduce/reduce conflicts", num_rr)
+        if num_rr != getattr(cls, "expected_reduce_reduce", None) and num_rr >= 1:
+            cls.log.warning("%d reduce/reduce conflict%s", num_rr, "s" * (num_rr > 1))
 
         cls._lrtable = lrtable
         return True
 
     @classmethod
-    def __collect_rules(cls, definitions: list[tuple[str, _t.Any]]) -> list[tuple[str, _t.Callable[..., _t.Any]]]:
+    def __collect_rules(cls, definitions: dict[str, _t.Any]) -> list[tuple[str, _t.Callable[..., _t.Any]]]:
         """Collect all of the tagged grammar rules."""
 
-        return [(name, value) for name, value in definitions if callable(value) and hasattr(value, "rules")]
+        return [(name, value) for name, value in definitions.items() if callable(value) and hasattr(value, "rules")]
 
     @classmethod
-    def _build(cls, definitions: list[tuple[str, _t.Any]]) -> None:
+    def _build(cls, definitions: dict[str, _t.Any]) -> None:
         """Build the LALR(1) tables. This method is triggered by `__init_subclass__()`.
 
         Parameters
         ----------
-        definitions: list[tuple[str, _t.Any]]
-            A list of (name, item) tuples of all definitions provided in the class, listed in the order in which they
+        definitions: dict[str, _t.Any]
+            A mapping of names to items for all definitions provided in the class, listed in the order in which they
             were defined.
         """
 
@@ -2301,7 +2322,7 @@ class Parser(metaclass=ParserMeta):
 
         del self.statestack[:]
         del self.symstack[:]
-        self.symstack.append(YaccSymbol(type="$end"))
+        self.symstack.append(YaccSymbol("$end"))
         self.statestack.append(0)
         self.state = 0
 
@@ -2324,7 +2345,7 @@ class Parser(metaclass=ParserMeta):
         defaulted_states = self._lrtable.defaulted_states
 
         # Production object passed to grammar rules
-        pslice = YaccProduction(None)
+        pslice = YaccProduction(MISSING)
         # Used during error recovery
         errorcount = 0
 
@@ -2355,7 +2376,7 @@ class Parser(metaclass=ParserMeta):
                     else:
                         self.lookahead = lookaheadstack.pop()
                     if not self.lookahead:
-                        self.lookahead = YaccSymbol(type="$end")
+                        self.lookahead = YaccSymbol("$end")
 
                 # Check the action table
                 ltype = self.lookahead.type
@@ -2377,21 +2398,20 @@ class Parser(metaclass=ParserMeta):
                         errorcount -= 1
                     continue
 
-                if t < 0:
+                elif t < 0:
                     # reduce a symbol on the stack, emit a production
                     self.production = p = prod[-t]
                     pname = p.name
                     plen = p.len
                     pslice._namemap = p.namemap
-
-                    # Call the production function
                     pslice._slice = symstack[-plen:] if plen else []
 
+                    # Call the production function
                     value = p.func(self, pslice)
                     if value is pslice:
                         value = (pname, *(s.value for s in pslice._slice))
 
-                    sym = YaccSymbol(type=pname, value=value)
+                    sym = YaccSymbol(pname, value)
 
                     # Record positions
                     if track_positions:
@@ -2401,9 +2421,7 @@ class Parser(metaclass=ParserMeta):
                             sym.end = symstack[-1].end
                         else:
                             # A zero-length production  (what to put here?)
-                            sym.lineno = None
-                            sym.index = None
-                            sym.end = None
+                            pass
 
                         _value_id = id(value)
                         self._line_positions[_value_id] = sym.lineno
@@ -2418,12 +2436,11 @@ class Parser(metaclass=ParserMeta):
                     statestack.append(self.state)
                     continue
 
-                if t == 0:
+                else:  # t == 0
                     n = symstack[-1]
-                    result = getattr(n, "value", None)
-                    return result  # noqa: RET504
+                    return n.value
 
-            if t is None:
+            else:  # t is None
                 # We have some kind of parsing error here. To handle
                 # this, we are going to push the current token onto
                 # the tokenstack and replace it with an 'error' token.
@@ -2442,8 +2459,7 @@ class Parser(metaclass=ParserMeta):
                     else:
                         errtoken = self.lookahead
 
-                    tok = self.error(errtoken)
-                    if tok:
+                    if tok := self.error(errtoken):
                         # User must have done some kind of panic
                         # mode recovery on their own. The
                         # returned token is the next lookahead
@@ -2475,11 +2491,11 @@ class Parser(metaclass=ParserMeta):
                 # at the end of the file. nuke the top entry and generate an error token
 
                 # Start nuking entries on the stack
-                if self.lookahead.type == "$end":
+                elif self.lookahead.type == "$end":
                     # Whoa. We're really hosed here. Bail out
                     return None
 
-                if self.lookahead.type != "error":
+                elif self.lookahead.type != "error":
                     sym = symstack[-1]
                     if sym.type == "error":
                         # Hmmm. Error is on top of stack, we'll just nuke input symbol and continue
@@ -2487,13 +2503,13 @@ class Parser(metaclass=ParserMeta):
                         continue
 
                     # Create the error symbol for the first time and make it the new lookahead symbol
-                    t = YaccSymbol(type="error", value=self.lookahead)
-                    if hasattr(self.lookahead, "lineno"):
-                        t.lineno = self.lookahead.lineno
-                    if hasattr(self.lookahead, "index"):
-                        t.index = self.lookahead.index
-                    if hasattr(self.lookahead, "end"):
-                        t.end = self.lookahead.end
+                    t = YaccSymbol(
+                        "error",
+                        self.lookahead,
+                        self.lookahead.lineno,
+                        self.lookahead.index,
+                        self.lookahead.end,
+                    )
 
                     lookaheadstack.append(self.lookahead)
                     self.lookahead = t
