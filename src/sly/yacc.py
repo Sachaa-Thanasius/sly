@@ -288,6 +288,23 @@ class Production:
         Set of unique symbols found in the production.
     """
 
+    __slots__ = (
+        "name",
+        "prod",
+        "number",
+        "func",
+        "file",
+        "line",
+        "prec",
+        "len",
+        "usyms",
+        "namemap",
+        "lr_items",
+        "lr_next",
+        "lr0_added",
+        "reduced",
+    )
+
     def __init__(
         self,
         number: int,
@@ -432,10 +449,18 @@ class LRItem:
         Grammar symbol immediately before.
     """
 
-    if TYPE_CHECKING:
-        lr_next: _t.Optional[LRItem]
-        lr_after: list[Production]
-        lr_before: _t.Optional[str]
+    __slots__ = (
+        "name",
+        "prod",
+        "number",
+        "lr_index",
+        "lookaheads",
+        "len",
+        "usyms",
+        "lr_next",
+        "lr_after",
+        "lr_before",
+    )
 
     def __init__(self, p: Production, n: int) -> None:
         self.name: str = p.name
@@ -445,6 +470,10 @@ class LRItem:
         self.lookaheads: dict[int, set[str]] = {}
         self.len: int = len(self.prod)
         self.usyms: set[str] = p.usyms
+
+        self.lr_next: _t.Optional[LRItem] = None
+        self.lr_after: list[Production] = []
+        self.lr_before: _t.Optional[str] = None
 
     def __str__(self) -> str:
         if self.prod:

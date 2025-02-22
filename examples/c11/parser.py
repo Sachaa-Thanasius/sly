@@ -96,7 +96,7 @@ class CParser(Parser):
 
     start = "translation_unit_file"
 
-    tokens = CLexer.tokens | {"ATOMIC_LPAREN"}
+    tokens = CLexer.tokens | {ATOMIC_LPAREN}
 
     precedence = (
         ("left", BARBAR),

@@ -116,6 +116,8 @@ class Token:
 
 
 class TokenStr(str):
+    __slots__ = ("key", "remap")
+
     def __new__(cls, value: object, key: str, remap: _t.Optional[dict[tuple[str, _t.Any], _t.Any]] = None) -> _t.Self:
         return super().__new__(cls, value)
 
