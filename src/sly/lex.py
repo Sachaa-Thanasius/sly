@@ -39,7 +39,6 @@ from __future__ import annotations
 import re
 
 from . import _typing_compat as _t
-from ._util import MISSING
 
 
 TYPE_CHECKING = False
@@ -107,7 +106,7 @@ class Token:
         self.index: int = index
         self.end: int = end
 
-    def __repr__(self, /):
+    def __repr__(self):
         return (
             f"{self.__class__.__name__}("
             f"type={self.type!r}, value={self.value!r}, lineno={self.lineno!r}, index={self.index!r}, end={self.end}"
@@ -196,13 +195,15 @@ def _match_action_decorator(pattern: str, *extra: str) -> _t.Callable[[_t.Callab
 
     def decorate(func: _t.CallableT) -> _t.CallableT:
         pattern = "|".join(f"({pat})" for pat in patterns)
-        old_pattern: str = getattr(func, "pattern", MISSING)
 
         # Runtime attribute assignment.
-        if old_pattern is not MISSING:
-            func.pattern = f"({pattern})|({old_pattern})"  # pyright: ignore [reportFunctionMemberAccess]
-        else:
+        try:
+            old_pattern: str = func.pattern  # pyright: ignore [reportFunctionMemberAccess] # Guarded.
+        except AttributeError:
             func.pattern = pattern  # pyright: ignore [reportFunctionMemberAccess]
+        else:
+            func.pattern = f"({pattern})|({old_pattern})"  # pyright: ignore [reportFunctionMemberAccess]
+
         return func
 
     return decorate
@@ -277,8 +278,6 @@ class Lexer(metaclass=LexerMeta):
     _token_funcs: _t.ClassVar[dict[str, _TokenMatchAction]] = {}
     _ignored_tokens: _t.ClassVar[set[str]] = set()
     _remapping: _t.ClassVar[dict[str, dict[str, str]]] = {}
-    _delete: _t.ClassVar[list[str]] = []
-    _remap: _t.ClassVar[dict[tuple[str, _t.Any], _t.Any]] = {}
 
     __state_stack: _t.ClassVar[_t.Optional[list[type[Lexer]]]] = None
     __set_state: _t.ClassVar[_t.Optional[_t.Callable[[type[Lexer]], None]]] = None
@@ -290,9 +289,9 @@ class Lexer(metaclass=LexerMeta):
         self.lineno: int = -1
 
         # ---- Backtracking-related functions
-        self.mark: _t.Callable[[], None] = MISSING
-        self.accept: _t.Callable[[], None] = MISSING
-        self.reject: _t.Callable[[], None] = MISSING
+        self.mark: _t.Callable[[], None] = lambda: None
+        self.accept: _t.Callable[[], None] = lambda: None
+        self.reject: _t.Callable[[], None] = lambda: None
 
     def __init_subclass__(cls, /) -> None:
         """Collect the lexing rules and build the master regular expression."""
@@ -471,12 +470,14 @@ class Lexer(metaclass=LexerMeta):
     def tokenize(self, text: str, lineno: int = 1, index: int = 0) -> _t.Generator[Token]:
         """Tokenize the given text."""
 
-        _ignored_tokens: set[str] = MISSING
-        _master_re: re.Pattern[str] = MISSING
-        _ignore: str = MISSING
-        _token_funcs: dict[str, _TokenMatchAction] = MISSING
-        _literals: set[str] = MISSING
-        _remapping: dict[str, dict[str, str]] = MISSING
+        _MISSING: _t.Any = object()  # Placeholder.
+
+        _ignored_tokens: set[str] = _MISSING
+        _master_re: re.Pattern[str] = _MISSING
+        _ignore: str = _MISSING
+        _token_funcs: dict[str, _TokenMatchAction] = _MISSING
+        _literals: set[str] = _MISSING
+        _remapping: dict[str, dict[str, str]] = _MISSING
 
         # ---- Support for state changes
         def _set_state(cls: type[Lexer]) -> None:

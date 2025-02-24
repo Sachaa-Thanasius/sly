@@ -41,7 +41,6 @@ from collections import Counter, defaultdict, deque
 from itertools import count
 
 from . import _typing_compat as _t
-from ._util import MISSING
 from .lex import Token
 
 
@@ -51,11 +50,19 @@ TYPE_CHECKING = False
 __all__ = ("Parser",)
 
 
-def _inspect_unwrap(
-    func: _t.Callable[..., _t.Any],
-    *,
-    stop: _t.Optional[_t.Callable[[_t.Callable[..., _t.Any]], _t.Any]] = None,
-) -> _t.Any:  # pragma: no cover
+@_t.final
+class _Missing:
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "<MISSING>"
+
+
+MISSING: _t.Final[_t.Any] = _Missing()
+"""Internal sentinel."""
+
+
+def _inspect_unwrap(func: _t.Callable[..., _t.Any]) -> _t.Any:  # pragma: no cover
     """A adapted version of `inspect.unwrap()` to avoid depending on `inspect` at runtime.
 
     See the original docstring below:
@@ -64,13 +71,6 @@ def _inspect_unwrap(
 
     Follows the chain of :attr:`__wrapped__` attributes returning the last
     object in the chain.
-
-    *stop* is an optional callback accepting an object in the wrapper chain
-    as its sole argument that allows the unwrapping to be terminated early if
-    the callback returns a true value. If the callback never returns a true
-    value, the last object in the chain is returned as usual. For example,
-    :func:`signature` uses this to stop unwrapping if any object in the
-    chain has a ``__signature__`` attribute defined.
 
     :exc:`ValueError` is raised if a cycle is encountered.
     """
@@ -81,9 +81,7 @@ def _inspect_unwrap(
     memo = {id(f): f}
     recursion_limit = sys.getrecursionlimit()
     while not isinstance(func, type) and hasattr(func, "__wrapped__"):
-        if stop is not None and stop(func):
-            break
-        func = func.__wrapped__  # pyright: ignore [reportFunctionMemberAccess] # Part of the function's operation.
+        func = func.__wrapped__  # pyright: ignore [reportFunctionMemberAccess]
         id_func = id(func)
         if (id_func in memo) or (len(memo) >= recursion_limit):
             msg = f"wrapper loop when unwrapping {f!r}"
@@ -179,9 +177,9 @@ class YaccProduction:
     __slots__ = ("_slice", "_namemap", "_stack")
 
     def __init__(self, s: list[YaccSymbol], stack: _t.Optional[list[YaccSymbol]] = None) -> None:
-        self._slice = s
+        self._slice: list[YaccSymbol] = s
         self._namemap: dict[str, _t.Callable[[list[YaccSymbol]], _t.Any]] = {}
-        self._stack = stack
+        self._stack: list[YaccSymbol] = stack if (stack is not None) else []
 
     @property
     def lineno(self) -> int:
@@ -215,14 +213,12 @@ class YaccProduction:
         if index >= 0:
             return self._slice[index].value
         else:
-            assert self._stack
             return self._stack[index].value
 
     def __setitem__(self, n: int, value: _t.Any, /) -> None:
         if n >= 0:
             self._slice[n].value = value
         else:
-            assert self._stack
             self._stack[n].value = value
 
     def __len__(self) -> int:
@@ -526,7 +522,7 @@ class Grammar:
     """
 
     def __init__(self, terminals: _t.Collection[str]) -> None:
-        self.Productions: list[Production] = [None]  # pyright: ignore [reportAttributeAccessIssue] # Reserved spot.
+        self.Productions: list[Production] = [None]  # pyright: ignore # Reserved for start symbol (see set_start()).
         self.Prodnames: dict[str, list[Production]] = {}
         self.Prodmap: dict[str, Production] = {}
         self.Terminals: dict[str, list[int]] = dict({term: [] for term in terminals}, error=[])
@@ -1164,6 +1160,7 @@ class LRTable:
                     if x.lr0_added == self._add_count:
                         continue
                     # Add B --> .G to J
+                    assert x.lr_next is not None
                     J.append(x.lr_next)
                     x.lr0_added = self._add_count
                     didadd = True
@@ -1422,14 +1419,14 @@ class LRTable:
                     j = self.lr0_cidhash.get(id(g), -1)  # Go to next state
 
                 # When we get here, j is the final state, now we have to locate the production
-                for r in C[j]:
-                    if r.name != p.name:
-                        continue
-                    if r.len != p.len:
-                        continue
+                lookb += [
+                    (j, r)
+                    for r in C[j]
+                    if (r.name == p.name)
+                    and (r.len == p.len)
                     # This look is comparing a production ". A B C" with "A B C ."
-                    if r.prod[: r.lr_index] == p.prod[1 : r.lr_index + 1]:
-                        lookb.append((j, r))
+                    and (r.prod[: r.lr_index] == p.prod[1 : r.lr_index + 1])
+                ]
 
             for i in includes:
                 includedict[i].append((state, N))
@@ -2038,7 +2035,8 @@ class ParserMetaDict(dict[str, _t.Any] if TYPE_CHECKING else dict):
             if not hasattr(value.next_func, "rules"):  # pyright: ignore [reportFunctionMemberAccess]
                 msg = f"Redefinition of {key}. Perhaps an earlier {key} is missing `@_`."
                 raise GrammarError(msg)
-        super().__setitem__(key, value)
+
+        return super().__setitem__(key, value)
 
     def __missing__(self, key: str, /) -> str:
         if key.isupper() and key[:1] != "_":
@@ -2080,9 +2078,7 @@ class Parser(metaclass=ParserMeta):
 
     Attributes
     ----------
-    errorok: bool
-        Error status.
-    given_tokens: _t.Iterator[Token]
+    token_stream: _t.Iterator[Token]
         Input tokens.
     lookahead: _t.Optional[_t.Union[Token, YaccSymbol]]
         Current lookahead symbol. Be careful with this.
@@ -2096,12 +2092,6 @@ class Parser(metaclass=ParserMeta):
         precedence: _t.ClassVar[_NestedConcreteSeqOfStr]
         """Precedence definition as a tuple/list containing tuples/lists of strings. Optional."""
 
-        expected_shift_reduce: _t.ClassVar[int]
-        """The exact number of shift-reduce conflicts to ignore. Optional."""
-
-        expected_reduce_reduce: _t.ClassVar[int]
-        """The exact number of reduce-reduce conflicts to ignore. Optional."""
-
     log: _t.ClassVar[_t.LoggerLike] = SlyLogger(sys.stderr)
     """Logging object where debugging/diagnostic messages are sent."""
 
@@ -2114,13 +2104,20 @@ class Parser(metaclass=ParserMeta):
     error_count: _t.ClassVar[int] = 3
     """Yacc config knob: The number of symbols that must be shifted to leave recovery mode."""
 
+    expected_shift_reduce: _t.ClassVar[int] = 0
+    """The exact number of shift-reduce conflicts to not report."""
+
+    expected_reduce_reduce: _t.ClassVar[int] = 0
+    """The exact number of reduce-reduce conflicts to not report."""
+
     def __init__(self) -> None:
         # ---- Public interface
-        self.errorok: bool = MISSING
-        self.given_tokens: _t.Iterator[Token] = MISSING
+        self.token_stream: _t.Iterator[Token] = MISSING
         self.lookahead: _t.Optional[_t.Union[Token, YaccSymbol]] = None
 
         # ---- Internal bookkeeping attributes
+        # Error status
+        self.errorok: bool = True
         # Current state
         self.state: int = 0
         # Stack of parsing states
@@ -2232,21 +2229,19 @@ class Parser(metaclass=ParserMeta):
         unused_terminals = grammar.unused_terminals()
         if unused_terminals:
             unused_str = "{" + ",".join(unused_terminals) + "}"
-            cls.log.warning("Token%s %s defined, but not used", "(s)" if len(unused_terminals) > 1 else "", unused_str)
+            cls.log.warning("Token%s %s defined, but not used", "(s)" * (len(unused_terminals) > 1), unused_str)
 
         unused_rules = grammar.unused_rules()
         for prod in unused_rules:
             cls.log.warning("%s:%d: Rule %r defined, but not used", prod.file, prod.line, prod.name)
 
-        if len(unused_terminals) == 1:
-            cls.log.warning("There is 1 unused token")
-        elif len(unused_terminals) > 1:
-            cls.log.warning("There are %d unused tokens", len(unused_terminals))
+        if unused_terminals:
+            num_ut = len(unused_terminals)
+            cls.log.warning("There %s %s unused token%s", "is" if num_ut == 1 else "are", num_ut, "s" * (num_ut > 1))
 
-        if len(unused_rules) == 1:
-            cls.log.warning("There is 1 unused rule")
-        elif len(unused_rules) > 1:
-            cls.log.warning("There are %d unused rules", len(unused_rules))
+        if unused_rules:
+            num_ur = len(unused_rules)
+            cls.log.warning("There %s %s unused rule%s", "is" if num_ur == 1 else "are", num_ur, "s" * (num_ur > 1))
 
         unreachable = grammar.find_unreachable()
         for u in unreachable:
@@ -2273,11 +2268,11 @@ class Parser(metaclass=ParserMeta):
 
         # Report shift/reduce and reduce/reduce conflicts
         num_sr = len(lrtable.sr_conflicts)
-        if num_sr != getattr(cls, "expected_shift_reduce", None) and num_sr >= 1:
+        if num_sr != cls.expected_shift_reduce and num_sr >= 1:
             cls.log.warning("%d shift/reduce conflict%s", num_sr, "s" * (num_sr > 1))
 
         num_rr = len(lrtable.rr_conflicts)
-        if num_rr != getattr(cls, "expected_reduce_reduce", None) and num_rr >= 1:
+        if num_rr != cls.expected_reduce_reduce and num_rr >= 1:
             cls.log.warning("%d reduce/reduce conflict%s", num_rr, "s" * (num_rr > 1))
 
         cls._lrtable = lrtable
@@ -2329,17 +2324,16 @@ class Parser(metaclass=ParserMeta):
     # This is the parsing runtime that users use.
     # ----------------------------------------------------------------------
 
-    def error(self, token: _t.Optional[_t.Union[Token, YaccSymbol]]) -> None:
+    def error(self, token: _t.Optional[_t.Union[Token, YaccSymbol]]) -> _t.Optional[Token]:
         """Default error handling function. This may be overridden in subclasses."""
 
         if token:
-            lineno = getattr(token, "lineno", 0)
-            if lineno:
-                sys.stderr.write(f"sly: Syntax error at line {lineno}, token={token.type}\n")
+            if token.lineno:
+                self.log.error("sly: Syntax error at line %d, token=%s\n", token.lineno, token.type)
             else:
-                sys.stderr.write(f"sly: Syntax error, token={token.type}")
+                self.log.error("sly: Syntax error, token=%s\n", token.type)
         else:
-            sys.stderr.write("sly: Parse error in input. EOF\n")
+            self.log.error("sly: Parse error in input. EOF\n")
 
     def errok(self) -> None:
         """Clear the error status."""
@@ -2349,8 +2343,8 @@ class Parser(metaclass=ParserMeta):
     def restart(self) -> None:
         """Force the parser to restart from a fresh state. Clears the statestack."""
 
-        del self.statestack[:]
-        del self.symstack[:]
+        self.statestack.clear()
+        self.symstack.clear()
         self.symstack.append(YaccSymbol("$end"))
         self.statestack.append(0)
         self.state = 0
@@ -2361,7 +2355,7 @@ class Parser(metaclass=ParserMeta):
         # Current lookahead symbol
         self.lookahead = None
         # Stack of lookahead symbols
-        lookaheadstack: list[_t.Any] = []
+        lookaheadstack: list[_t.Union[Token, YaccSymbol]] = []
 
         # Local references (to avoid lookup on self).
         # Action table
@@ -2374,12 +2368,12 @@ class Parser(metaclass=ParserMeta):
         defaulted_states = self._lrtable.defaulted_states
 
         # Production object passed to grammar rules
-        pslice = YaccProduction(MISSING)
+        pslice = YaccProduction([])
         # Used during error recovery
         errorcount = 0
 
         # Set up the state and symbol stacks
-        self.given_tokens = tokens
+        self.token_stream = tokens
         statestack: list[int] = []  # Stack of parsing states
         self.statestack = statestack
         symstack: list[YaccSymbol] = []  # Stack of grammar symbols
@@ -2480,6 +2474,9 @@ class Parser(metaclass=ParserMeta):
                 # the user defined error() function if this is the
                 # first syntax error. This function is only called if
                 # errorcount == 0.
+
+                assert self.lookahead is not None
+
                 if errorcount == 0 or self.errorok:
                     errorcount = self.error_count
                     self.errorok = False
@@ -2507,13 +2504,11 @@ class Parser(metaclass=ParserMeta):
                 # entire parse has been rolled back and we're completely hosed.   The token is
                 # discarded and we just keep going.
 
-                assert self.lookahead is not None
-
                 if len(statestack) <= 1 and self.lookahead.type != "$end":
                     self.lookahead = None
                     self.state = 0
                     # Nuke the lookahead stack
-                    del lookaheadstack[:]
+                    lookaheadstack.clear()
                     continue
 
                 # case 2: the statestack has a couple of entries on it, but we're
