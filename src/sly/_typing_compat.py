@@ -24,7 +24,7 @@ class _PlaceholderMeta(type):
         super().__init__(*args, **kwargs)
 
         if not hasattr(self, "_source_module"):
-            msg = "A placeholder must indicate the source of the original with a `_source_module` variable."
+            msg = "A placeholder must indicate the source of the original with a `_source_module` string."
             raise ValueError(msg)
 
         self.__doc__ = f"Placeholder for {self._source_module}.{self.__name__}."
@@ -51,7 +51,6 @@ __all__ = (
     "Self",
     # Used at runtime.
     "TYPE_CHECKING",
-    "cast",
     "final",
     # Other.
     "CallableT",
@@ -60,7 +59,7 @@ __all__ = (
 
 
 def __getattr__(name: str, /) -> object:
-    # Save the imported symbols in the global namespace to avoid re-importing in the future.
+    # Save the imported/created symbols in the global namespace to avoid re-importing/recreating them in the future.
 
     if name in {"Callable", "Collection", "Generator", "Iterator"}:
         global Callable, Collection, Generator, Iterator
@@ -137,15 +136,6 @@ elif sys.version_info < (3, 11):  # pragma: <3.11 cover
 
     class Self(metaclass=_PlaceholderMeta):
         _source_module = "typing"
-
-
-# cast: Used at runtime.
-if TYPE_CHECKING:
-    from typing import cast
-else:
-
-    def cast(typ: object, val: object) -> object:
-        return val
 
 
 # final: Used at runtime.

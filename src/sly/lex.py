@@ -39,9 +39,7 @@ from __future__ import annotations
 import re
 
 from . import _typing_compat as _t
-
-
-TYPE_CHECKING = False
+from ._typing_compat import TYPE_CHECKING
 
 
 __all__ = ("Lexer",)
@@ -136,6 +134,8 @@ class TokenStr(str):
 
 
 class _Before:
+    __slots__ = ("tok", "pattern")
+
     def __init__(self, tok: str, pattern: str) -> None:
         self.tok = tok
         self.pattern = pattern
@@ -149,8 +149,10 @@ class _Before:
 # ============================================================================
 
 
-class LexerMetaDict(dict[str, _t.Any] if TYPE_CHECKING else dict):
+class LexerMetaDict(dict[str, object]):
     """Special dictionary that prohibits duplicate definitions in lexer specifications."""
+
+    __slots__ = ("before", "delete", "remap")
 
     def __init__(self) -> None:
         self.before: dict[str, str] = {}

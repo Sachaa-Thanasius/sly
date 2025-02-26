@@ -44,9 +44,6 @@ from . import _typing_compat as _t
 from .lex import Token
 
 
-TYPE_CHECKING = False
-
-
 __all__ = ("Parser",)
 
 
@@ -171,7 +168,7 @@ class YaccProduction:
     """
 
     # In this case, slots conveniently prevent attempts to assign to proxied attributes. A much slower alternative is a
-    # custom __setattr__ that calls super().__setattr__ if the attribute name begins with an underscore, but otherwise
+    # custom __setattr__ that calls super().__setattr__ if the attribute name begins with an underscore but otherwise
     # raises.
 
     __slots__ = ("_slice", "_namemap", "_stack")
@@ -575,7 +572,7 @@ class Grammar:
         self,
         prodname: str,
         syms: list[str],
-        func: _t.Optional[_t.Callable[..., _t.Any]] = None,
+        func: _t.Callable[..., _t.Any],
         file: str = "",
         line: int = 0,
         *,
@@ -593,8 +590,8 @@ class Grammar:
         syms: list[str]
             The list of symbols representing the production, e.g. ["expr", "PLUS", "term"] for the rule
             ``expr : expr PLUS term``.
-        func: _t.Callable[..., _t.Any], optional
-            The action function. Defaults to None.
+        func: _t.Callable[..., _t.Any]
+            The action function.
 
         Raises
         ------
@@ -753,7 +750,7 @@ class Grammar:
                 # Nonterminal n terminates iff any of its productions terminates.
                 for p in pl:
                     # Production p terminates iff all of its rhs symbols terminate.
-                    if all(terminates[s] for s in p.prod):
+                    if all(map(terminates.__contains__, p.prod)):
                         # symbol n terminates!
                         if not terminates[n]:
                             terminates[n] = True
@@ -1788,7 +1785,7 @@ def _collect_grammar_rules(na_state: NameAliasesState, func: _t.Callable[..., _t
         unwrapped = _inspect_unwrap(curr_func)
         filename: str = unwrapped.__code__.co_filename
         lineno_start: int = unwrapped.__code__.co_firstlineno
-        func_rules = _t.cast(list[str], curr_func.rules)  # pyright: ignore # Pre-confirmed .rules exists.
+        func_rules: list[str] = curr_func.rules  # pyright: ignore # Pre-confirmed .rules exists.
         for rule, lineno in zip(func_rules, range(lineno_start + len(func_rules) - 1, 0, -1)):
             syms = rule.split()
             ebnf_prod: list[_RawGrammarRule] = []
@@ -2026,8 +2023,10 @@ def _generate_choice_rules(na_state: NameAliasesState, symbols: list[str]) -> tu
 # ============================================================================
 
 
-class ParserMetaDict(dict[str, _t.Any] if TYPE_CHECKING else dict):
+class ParserMetaDict(dict[str, object]):
     """Special dictionary that allows decorated grammar rule functions to be overloaded."""
+
+    __slots__ = ()
 
     def __setitem__(self, key: str, value: _t.Any, /) -> None:
         if (key in self) and callable(value) and hasattr(value, "rules"):
@@ -2085,12 +2084,11 @@ class Parser(metaclass=ParserMeta):
     """
 
     # ---- Public class attributes.
-    if TYPE_CHECKING:
-        tokens: _t.ClassVar[set[str]]
-        """Lexing tokens. Must be defined in a subclass."""
+    tokens: _t.ClassVar[set[str]]
+    """Lexing tokens. Must be defined in a subclass."""
 
-        precedence: _t.ClassVar[_NestedConcreteSeqOfStr]
-        """Precedence definition as a tuple/list containing tuples/lists of strings. Optional."""
+    precedence: _t.ClassVar[_NestedConcreteSeqOfStr]
+    """Precedence definition as a tuple/list containing tuples/lists of strings. Optional."""
 
     log: _t.ClassVar[_t.LoggerLike] = SlyLogger(sys.stderr)
     """Logging object where debugging/diagnostic messages are sent."""
@@ -2286,7 +2284,7 @@ class Parser(metaclass=ParserMeta):
 
     @classmethod
     def _build(cls, definitions: dict[str, _t.Any]) -> None:
-        """Build the LALR(1) tables. This method is triggered by `__init_subclass__()`.
+        """Build the LALR(1) tables. This method is triggered by `Parser.__init_subclass__()`.
 
         Parameters
         ----------
@@ -2312,7 +2310,7 @@ class Parser(metaclass=ParserMeta):
             raise YaccError(msg)
 
         if cls.debugfile:
-            with open(cls.debugfile, "w") as f:
+            with open(cls.debugfile, "w", encoding="utf-8") as f:
                 f.write(str(cls._grammar))
                 f.write("\n")
                 f.write(str(cls._lrtable))

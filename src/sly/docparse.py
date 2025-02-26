@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 from . import _typing_compat as _t
+from ._typing_compat import TYPE_CHECKING
 from .lex import Lexer
 from .yacc import Parser
-
-
-TYPE_CHECKING = False
 
 
 __all__ = ("DocParseMeta",)
