@@ -254,6 +254,17 @@ class Lexer(metaclass=LexerMeta):
         Current line number of the lexer within the text.
     """
 
+    __slots__ = (
+        "text",
+        "index",
+        "lineno",
+        "mark",
+        "accept",
+        "reject",
+        "__state_stack",
+        "__set_state",
+    )
+
     # ---- Public class attributes.
     tokens: _t.ClassVar[set[str]] = set()
     """Set of token names. Must be defined in a subclass."""
@@ -272,7 +283,7 @@ class Lexer(metaclass=LexerMeta):
 
     # ---- Internal attributes
     if TYPE_CHECKING:
-        # Created by _build(), called in __init_subclass__().
+        # Created by _build(), which is called in __init_subclass__().
         _rules: _t.ClassVar[list[tuple[str, _t.Union[str, _TokenMatchAction]]]]
         _master_re: _t.ClassVar[re.Pattern[str]]
 
@@ -280,9 +291,6 @@ class Lexer(metaclass=LexerMeta):
     _token_funcs: _t.ClassVar[dict[str, _TokenMatchAction]] = {}
     _ignored_tokens: _t.ClassVar[set[str]] = set()
     _remapping: _t.ClassVar[dict[str, dict[str, str]]] = {}
-
-    __state_stack: _t.ClassVar[_t.Optional[list[type[Lexer]]]] = None
-    __set_state: _t.ClassVar[_t.Optional[_t.Callable[[type[Lexer]], None]]] = None
 
     def __init__(self) -> None:
         # ---- Public interface
@@ -295,9 +303,14 @@ class Lexer(metaclass=LexerMeta):
         self.accept: _t.Callable[[], None] = lambda: None
         self.reject: _t.Callable[[], None] = lambda: None
 
+        # ---- Internal state
+        self.__state_stack: _t.Optional[list[type[Lexer]]] = None
+        self.__set_state: _t.Optional[_t.Callable[[type[Lexer]], None]] = None
+
     def __init_subclass__(cls, /) -> None:
         """Collect the lexing rules and build the master regular expression."""
 
+        super().__init_subclass__()
         cls._build(vars(cls).copy())
 
     @classmethod
@@ -472,14 +485,14 @@ class Lexer(metaclass=LexerMeta):
     def tokenize(self, text: str, lineno: int = 1, index: int = 0) -> _t.Generator[Token]:
         """Tokenize the given text."""
 
-        _MISSING: _t.Any = object()  # Placeholder.
+        MISSING: _t.Any = object()  # Placeholder for late initialization.
 
-        _ignored_tokens: set[str] = _MISSING
-        _master_re: re.Pattern[str] = _MISSING
-        _ignore: str = _MISSING
-        _token_funcs: dict[str, _TokenMatchAction] = _MISSING
-        _literals: set[str] = _MISSING
-        _remapping: dict[str, dict[str, str]] = _MISSING
+        _ignored_tokens: set[str] = MISSING
+        _master_re: re.Pattern[str] = MISSING
+        _ignore: str = MISSING
+        _token_funcs: dict[str, _TokenMatchAction] = MISSING
+        _literals: set[str] = MISSING
+        _remapping: dict[str, dict[str, str]] = MISSING
 
         # ---- Support for state changes
         def _set_state(cls: type[Lexer]) -> None:

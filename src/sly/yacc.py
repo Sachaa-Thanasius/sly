@@ -170,7 +170,6 @@ class YaccProduction:
     # In this case, slots conveniently prevent attempts to assign to proxied attributes. A much slower alternative is a
     # custom __setattr__ that calls super().__setattr__ if the attribute name begins with an underscore but otherwise
     # raises.
-
     __slots__ = ("_slice", "_namemap", "_stack")
 
     def __init__(self, s: list[YaccSymbol], stack: _t.Optional[list[YaccSymbol]] = None) -> None:
@@ -519,7 +518,8 @@ class Grammar:
     """
 
     def __init__(self, terminals: _t.Collection[str]) -> None:
-        self.Productions: list[Production] = [None]  # pyright: ignore # Reserved for start symbol (see set_start()).
+        # Reserve the first entry in Productions for a start symbol (see set_start()).
+        self.Productions: list[Production] = [None]  # pyright: ignore [reportAttributeAccessIssue]
         self.Prodnames: dict[str, list[Production]] = {}
         self.Prodmap: dict[str, Production] = {}
         self.Terminals: dict[str, list[int]] = dict({term: [] for term in terminals}, error=[])
@@ -1181,6 +1181,8 @@ class LRTable:
         set comparisons using id(obj) instead of element-wise comparison.
         """
 
+        # TODO: Understand this function. The types aren't necessarily correct.
+
         # First we look for a previously cached entry
         try:
             g = self.lr_goto_cache[(id(I), x)]
@@ -1785,7 +1787,10 @@ def _collect_grammar_rules(na_state: NameAliasesState, func: _t.Callable[..., _t
         unwrapped = _inspect_unwrap(curr_func)
         filename: str = unwrapped.__code__.co_filename
         lineno_start: int = unwrapped.__code__.co_firstlineno
-        func_rules: list[str] = curr_func.rules  # pyright: ignore # Pre-confirmed .rules exists.
+
+        # Pre-condition: .rules exists.
+        func_rules: list[str] = curr_func.rules  # pyright: ignore [reportFunctionMemberAccess]
+
         for rule, lineno in zip(func_rules, range(lineno_start + len(func_rules) - 1, 0, -1)):
             syms = rule.split()
             ebnf_prod: list[_RawGrammarRule] = []
@@ -2048,7 +2053,7 @@ def _rules_decorator(rule: str, *extra: str) -> _t.Callable[[_t.CallableT], _t.C
     rules = [rule, *extra]
 
     def decorate(func: _t.CallableT) -> _t.CallableT:
-        func.rules = [*getattr(func, "rules", []), *rules[::-1]]  # pyright: ignore # Runtime attribute assignment.
+        func.rules = [*getattr(func, "rules", []), *rules[::-1]]  # pyright: ignore [reportFunctionMemberAccess]
         return func
 
     return decorate
@@ -2083,6 +2088,18 @@ class Parser(metaclass=ParserMeta):
         Current lookahead symbol. Be careful with this.
     """
 
+    __slots__ = (
+        "token_stream",
+        "lookahead",
+        "errorok",
+        "state",
+        "statestack",
+        "symstack",
+        "_line_positions",
+        "_index_positions",
+        "production",
+    )
+
     # ---- Public class attributes.
     tokens: _t.ClassVar[set[str]]
     """Lexing tokens. Must be defined in a subclass."""
@@ -2113,7 +2130,7 @@ class Parser(metaclass=ParserMeta):
         self.token_stream: _t.Iterator[Token] = MISSING
         self.lookahead: _t.Optional[_t.Union[Token, YaccSymbol]] = None
 
-        # ---- Internal bookkeeping attributes
+        # ---- Internal state
         # Error status
         self.errorok: bool = True
         # Current state

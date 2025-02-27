@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 #       - Deletion of tokens in subclasses
 #       - Redefinition of pre-existing rules in subclasses
 #   - `@_` API
-#       - Stacking the decorator mutiple times
+#       - Stacking the decorator multiple times
 #       - Providing multiple strings as input
 #   - Remapped tokens accidentally being left out of the tokens set.
 #   - Invalid rule type, since all should be strings or callables.

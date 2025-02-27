@@ -50,10 +50,11 @@ class DocParseMeta(type):
     '''
 
     if TYPE_CHECKING:
+        # Somewhat enforced in __init_subclass__().
         lexer: _t.ClassVar[type[Lexer]]
         parser: _t.ClassVar[type[Parser]]
 
-    def __new__(cls, clsname: str, bases: tuple[type, ...], namespace: dict[str, _t.Any]):
+    def __new__(cls, clsname: str, bases: tuple[type, ...], namespace: dict[str, _t.Any], /, **kwargs: _t.Any):
         if "__doc__" in namespace:
             lexer = cls.lexer()
             parser = cls.parser()
@@ -64,14 +65,16 @@ class DocParseMeta(type):
             lexer.cls_module = parser.cls_module = namespace["__module__"]  # pyright: ignore [reportAttributeAccessIssue]
 
             parsedict = parser.parse(lexer.tokenize(namespace["__doc__"]))
+
             if not isinstance(parsedict, dict):
                 msg = "Parser must return a dictionary"
                 raise ValueError(msg)
             namespace.update(parsedict)  # pyright: ignore [reportUnknownArgumentType] # It's enough that it's a dict.
-        return super().__new__(cls, clsname, bases, namespace)
 
-    @classmethod
-    def __init_subclass__(cls) -> None:
+        return super().__new__(cls, clsname, bases, namespace, **kwargs)
+
+    def __init_subclass__(cls, /, **kwargs: _t.Any) -> None:
+        super().__init_subclass__(**kwargs)
         if not (hasattr(cls, "parser") and hasattr(cls, "lexer")):
             msg = "This class must have a parser and lexer."
             raise RuntimeError(msg)

@@ -11,7 +11,7 @@ __all__ = ("AST",)
 
 
 class AST:
-    def __init_subclass__(cls, **kwargs: object) -> None:
+    def __init_subclass__(cls, /, **kwargs: _t.Any) -> None:
         super().__init_subclass__(**kwargs)
         mod = sys.modules[cls.__module__]
         if not hasattr(cls, "__annotations__"):
@@ -19,7 +19,7 @@ class AST:
 
         hints = list(cls.__annotations__.items())
 
-        def __init__(self: _t.Self, *args: object, **kwargs: object) -> None:
+        def __init__(self: _t.Self, *args: _t.Any, **kwargs: _t.Any) -> None:
             if len(hints) != len(args):
                 msg = f"Expected {len(hints)} arguments"
                 raise TypeError(msg)

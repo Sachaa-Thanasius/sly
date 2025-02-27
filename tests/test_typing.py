@@ -151,14 +151,14 @@ def can_have_annotations(obj: object) -> bool:
     return isinstance(obj, (type, types.ModuleType)) or callable(obj)
 
 
-important_mods_with_annotations = [
-    importlib.import_module(mod_info.name)
-    for mod_info in pkgutil.iter_modules(sly.__spec__.submodule_search_locations, prefix=f"{sly.__spec__.name}.")
-    if mod_info.name != f"{sly.__spec__.name}.types"
-]
-
-
-@pytest.mark.parametrize("mod", important_mods_with_annotations)
+@pytest.mark.parametrize(
+    "mod",
+    [
+        importlib.import_module(mod_info.name)
+        for mod_info in pkgutil.iter_modules(sly.__spec__.submodule_search_locations, prefix=f"{sly.__spec__.name}.")
+        if mod_info.name != f"{sly.__spec__.name}.types"
+    ],
+)
 def test_library_annotations_are_valid(mod: types.ModuleType):
     get_annotations(mod, eval_str=True)
 

@@ -26,8 +26,13 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Sachaa-Thanasius/sly"
+Homepage = "https://github.com/Sachaa-Thanasius/sly/tree/modernization"
 Documentation = "https://sly.readthedocs.io/en/latest/"
+
+[dependency-groups]
+dev = ["tox>=4.24.1"]
+test = ["pytest>=8"]
+cov = ["coverage>=7", "covdefaults"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sly"]
@@ -35,22 +40,18 @@ packages = ["src/sly"]
 
 # ---- Test config
 
-[[tool.hatch.envs.hatch-test.matrix]]
-python = ["3.9", "3.10", "3.11", "3.12", "3.13"]
-
-[tool.hatch.envs.hatch-test]
-extra-dependencies = ["covdefaults"]
-
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib", "--strict-markers", "--strict-config"]
-
-[tool.coverage.paths]
-sly = ["src"]
+testpaths = "tests"
 
 [tool.coverage.run]
 plugins = ["covdefaults"]
 source = ["sly", "tests"]
-omit = ["src/sly/ast.py", "src/sly/docparse.py", "src/sly/types.py"]
+omit = ["**/sly/ast.py", "**/sly/docparse.py", "**/sly/types.py"]
+parallel = true
+
+[tool.coverage.paths]
+sly = ["src", "*/site-packages"]
 
 [tool.coverage.report]
 fail_under = 90
@@ -67,41 +68,49 @@ line-length = 120
 typing-modules = ["sly._typing_compat"]
 
 select = [
-    "F",
-    "E",
-    "I",
-    "UP",
-    "YTT",
+    "A",
     "ANN",
     "ASYNC",
-    "S",
-    "BLE",
-    # "FBT",
     "B",
-    "A",
-    "COM",
+    "BLE",
     "C4",
+    "COM",
     "DTZ",
-    "T10",
+    "E",
     "EM",
-    "ISC",
-    "G",
-    "INP",
-    "PIE",
-    "T20",
-    "PYI",
-    "PT",
-    "RSE",
-    "RET",
-    "SIM",
-    "TID",
-    "PTH",
     "ERA",
-    "PL",
-    "TRY",
-    "PERF",
+    "F",
     "FURB",
+    "G",
+    "I",
+    "ICN",
+    "INP",
+    "ISC",
+    "LOG",
+    "NPY",
+    "PD",
+    "PERF",
+    "PGH",
+    "PIE",
+    "PL",
+    "PT",
+    "PTH",
+    "PYI",
+    "RET",
+    "RSE",
     "RUF",
+    "S",
+    "SIM",
+    "SLOT",
+    "T10",
+    "T20",
+    "TC",
+    "TID",
+    "TRY",
+    "UP",
+    "W",
+    "YTT",
+    # "FBT",
 ]
 extend-ignore = [
     # ---- General
@@ -112,6 +121,9 @@ extend-ignore = [
     "ANN401",  # Any is needed for some annotations.
     "UP038",   # isinstance performs better with tuples than unions.
     "PT001",   # pytest recommends against empty parentheses on pytest.fixture.
+    "TC001",   # Don't eagerly put things in TYPE_CHECKING blocks.
+    "TC002",   # Don't eagerly put things in TYPE_CHECKING blocks.
+    "TC003",   # Don't eagerly put things in TYPE_CHECKING blocks.
     "PD011",   # Erroneous issue that triggers for any .values attribute access at all.
     "PLR2004", # "Magic number" depends on the use case.
     "RUF002",  # "Ambiguous character" depends on the use case.
@@ -120,6 +132,7 @@ extend-ignore = [
     "RUF023",  # __slots__ ordering can be meaningful. 
 
     # ---- Recommended by Ruff when using Ruff format
+    "W191",
     "E111",
     "E114",
     "E117",
@@ -143,6 +156,7 @@ extend-ignore = [
     "RUF002", # Leave my en dashes alone.
     "PTH123", # Builtin open() is fine.
     "A005",   # Shadowing builtin modules is fine for sly submodules.
+    "TC004",  # Intended usage of sly.types._ violates this.
 ]
 unfixable = [
     "ERA", # Prevent unlikely erroneous deletion.
@@ -175,15 +189,15 @@ keep-runtime-typing = true
     "ANN202", # Annotations for private function returns.
 ]
 "examples/**/*.py" = [
-    # Refer to comments in the tests/*.py entry.
-    "RUF012", # Mutable class attributes.
+    # Refer to explanations in the tests entry.
+    "RUF012",
     "F811",
     "F821",
-    "T201",   # Printing.
-    "T203",   # Pretty-printing.
-    "ANN001", # Annotations for parameters.
-    "ANN201", # Annotations for public function returns.
-    "ANN202", # Annotations for private function returns.
+    "T201",
+    "T203",
+    "ANN001",
+    "ANN201",
+    "ANN202",
 ]
 
 
@@ -196,7 +210,7 @@ pythonVersion = "3.9"
 pythonPlatform = "All"
 typeCheckingMode = "strict"
 
-defineConstant = { "TYPE_CHECKING" = true }
+defineConstant = { "TYPE_CHECKING" = true } # Just in case.
 
 reportPrivateUsage = "none"                    # We're the library.
 reportUnnecessaryIsInstance = "none"           # Verify user input.
