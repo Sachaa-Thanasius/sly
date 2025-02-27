@@ -1,24 +1,15 @@
 
 requires = ["tox>=4.24.1"]
-env_list = ["clean", "3.9", "3.10", "3.11", "3.12", "3.13", "coverage"]
+env_list = ["coverage_clean", "3.9", "3.10", "3.11", "3.12", "3.13", "coverage"]
 skip_missing_interpreters = true
 
 [env_run_base]
 package = "wheel"
 wheel_build_env = ".pkg"
 dependency_groups = ["test", "cov"]
-commands = [
-    [
-        "coverage",
-        "run",
-        "--debug=pathmap",
-        "-m",
-        "pytest",
-        { replace = "posargs", extend = true },
-    ],
-]
+commands = [["coverage", "run", "-m", "pytest", { replace = "posargs", extend = true }]]
 
-[env.clean]
+[env.coverage_clean]
 skip_install = true
 dependency_groups = ["cov"]
 commands = [["coverage", "erase"]]
@@ -28,3 +19,63 @@ skip_install = true
 dependency_groups = ["cov"]
 depends = ["3.9", "3.10", "3.11", "3.12", "3.13"]
 commands = [["coverage", "combine"], ["coverage", "report"]]
+
+[env.benchmark_import]
+dependency_groups = ["bench"]
+allowlist_externals = ["dot"]
+commands = [
+    [
+        "python",
+        "-m",
+        "cProfile",
+        "-o",
+        "log_import.pstats",
+        "-m",
+        "examples.c11.parser",
+        "run",
+    ],
+    [
+        "gprof2dot",
+        "log_import.pstats",
+        "-o",
+        "log_import.dot",
+        { replace = "posargs", extend = true },
+    ],
+    [
+        "dot",
+        "-Tsvg",
+        "-o",
+        "log_import.svg",
+        "log_import.dot",
+    ],
+]
+
+[env.benchmark_runtime]
+dependency_groups = ["bench"]
+allowlist_externals = ["dot"]
+commands = [
+    [
+        "python",
+        "-m",
+        "cProfile",
+        "-o",
+        "log_runtime.pstats",
+        "-m",
+        "examples.json",
+        "run",
+    ],
+    [
+        "gprof2dot",
+        "log_runtime.pstats",
+        "-o",
+        "log_runtime.dot",
+        { replace = "posargs", extend = true },
+    ],
+    [
+        "dot",
+        "-Tsvg",
+        "-o",
+        "log_runtime.svg",
+        "log_runtime.dot",
+    ],
+]

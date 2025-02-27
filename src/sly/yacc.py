@@ -249,10 +249,10 @@ class Production:
         Name of the production, e.g. "expr".
     prod: list[str]
         A list of symbols on the right side, e.g. ["expr", "PLUS", "term"].
+    func: _t.Callable[..., _t.Any]
+        Function that executes on reduce.
     prec: tuple[str, int], default=("right", 0)
         Production precedence level.
-    func: _t.Callable[..., _t.Any], optional
-        Function that executes on reduce. Defaults to None.
     file: str, default=""
         File where production function is defined.
     line: int, default=0
@@ -302,8 +302,8 @@ class Production:
         number: int,
         name: str,
         prod: list[str],
+        func: _t.Callable[[Parser, YaccProduction], _t.Any],
         precedence: tuple[str, int] = ("right", 0),
-        func: _t.Optional[_t.Callable[..., _t.Any]] = None,
         file: str = "",
         line: int = 0,
         *,
@@ -312,7 +312,7 @@ class Production:
         self.name: str = name
         self.prod: tuple[str, ...] = tuple(prod)
         self.number: int = number
-        self.func: _t.Callable[..., _t.Any] | None = func
+        self.func: _t.Callable[[Parser, YaccProduction], _t.Any] = func
         self.file: str = file
         self.line: int = line
         self.prec: tuple[str, int] = precedence
@@ -351,7 +351,7 @@ class Production:
                         k = alias
 
                     # The value is either a list (for repetition) or a tuple for optional
-                    def _anon_accessor(s: list[YaccSymbol], i: int = index, n: int = n) -> object:
+                    def _anon_accessor(s: list[YaccSymbol], i: int = index, n: int = n) -> _t.Any:
                         val = s[i].value
                         if isinstance(val, list):
                             return [x[n] for x in val]  # pyright: ignore [reportUnknownVariableType]
@@ -572,7 +572,7 @@ class Grammar:
         self,
         prodname: str,
         syms: list[str],
-        func: _t.Callable[..., _t.Any],
+        func: _t.Callable[[Parser, YaccProduction], _t.Any],
         file: str = "",
         line: int = 0,
         *,
@@ -590,7 +590,7 @@ class Grammar:
         syms: list[str]
             The list of symbols representing the production, e.g. ["expr", "PLUS", "term"] for the rule
             ``expr : expr PLUS term``.
-        func: _t.Callable[..., _t.Any]
+        func: _t.Callable[[Parser, YaccProduction], _t.Any]
             The action function.
 
         Raises
@@ -662,7 +662,7 @@ class Grammar:
                 self.Nonterminals[t].append(pnumber)
 
         # Create a production and add it to the list of productions
-        p = Production(pnumber, prodname, syms, prodprec, func, file, line, name_aliases=name_aliases)
+        p = Production(pnumber, prodname, syms, func, prodprec, file, line, name_aliases=name_aliases)
         self.Productions.append(p)
         self.Prodmap[map_] = p
 
@@ -692,7 +692,14 @@ class Grammar:
         if start not in self.Nonterminals:
             msg = f"Start symbol {start!r} undefined."
             raise GrammarError(msg)
-        self.Productions[0] = Production(0, "S'", [start], name_aliases=name_aliases)
+
+        def _start_error(parser: Parser, prod: YaccProduction) -> None:
+            """A hopefully sane default for catastrophe."""
+
+            msg = "Catastrophic error. This should never be called."
+            raise RuntimeError(msg, parser, prod)
+
+        self.Productions[0] = Production(0, "S'", [start], _start_error, name_aliases=name_aliases)
         self.Nonterminals[start].append(0)
         self.Start = start
 
@@ -2035,8 +2042,8 @@ class ParserMetaDict(dict[str, object]):
 
     def __setitem__(self, key: str, value: _t.Any, /) -> None:
         if (key in self) and callable(value) and hasattr(value, "rules"):
-            value.next_func = self[key]  # pyright: ignore [reportFunctionMemberAccess]
-            if not hasattr(value.next_func, "rules"):  # pyright: ignore [reportFunctionMemberAccess]
+            value.next_func = next_func = self[key]  # pyright: ignore [reportFunctionMemberAccess]
+            if not hasattr(next_func, "rules"):
                 msg = f"Redefinition of {key}. Perhaps an earlier {key} is missing `@_`."
                 raise GrammarError(msg)
 
@@ -2424,6 +2431,8 @@ class Parser(metaclass=ParserMeta):
 
             if t is not None:
                 if t > 0:
+                    assert self.lookahead is not None
+
                     # shift a symbol on the stack
                     statestack.append(t)
                     self.state = t

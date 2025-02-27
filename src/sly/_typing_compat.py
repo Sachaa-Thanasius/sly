@@ -1,5 +1,3 @@
-# ruff: noqa: PLW0603
-
 """Shim for typing- and annotation-related symbols to avoid runtime dependencies on `typing` or `typing-extensions`.
 
 Warning: Do not directly import annotation-related symbols from this module (e.g. `from ._typing_compat import Any`)!
@@ -34,7 +32,7 @@ class _PlaceholderMeta(type):
 
 
 __all__ = (
-    # Annotation/typing symbols.
+    # Imported.
     "Callable",
     "Collection",
     "Generator",
@@ -46,15 +44,15 @@ __all__ = (
     "Optional",
     "TextIO",
     "Union",
-    # Annotation/typing symbols with version-dependent handling.
+    # Imported, with version-dependent handling.
     "TypeAlias",
     "Self",
+    # Created (custom).
+    "CallableT",
+    "LoggerLike",
     # Used at runtime.
     "TYPE_CHECKING",
     "final",
-    # Other.
-    "CallableT",
-    "LoggerLike",
 )
 
 

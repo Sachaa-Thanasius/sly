@@ -10,9 +10,7 @@ requires-python = ">=3.9"
 readme = "README.rst"
 license = "BSD-3-Clause"
 authors = [{ name = "David Beazley", email = "dave@dabeaz.com" }]
-maintainers = [
-    { name = "Sachaa-Thanasius", email = "sachaathanasius@gmail.com" },
-]
+maintainers = [{ name = "Sachaa-Thanasius", email = "sachaathanasius@gmail.com" }]
 classifiers = [
     "License :: OSI Approved :: BSD License",
     "Natural Language :: English",
@@ -33,6 +31,7 @@ Documentation = "https://sly.readthedocs.io/en/latest/"
 dev = ["tox>=4.24.1"]
 test = ["pytest>=8"]
 cov = ["coverage>=7", "covdefaults"]
+bench = ["yelp-gprof2dot"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sly"]
@@ -170,13 +169,16 @@ combine-as-imports = true
 keep-runtime-typing = true
 
 [tool.ruff.lint.per-file-ignores]
-"src/sly/yacc.py" = [
-    "E741", # Ambiguous names? No, math variable names.
-]
 "**/__init__.py" = [
     # Ruff doesn't understand using star imports to export names in a package.
     "F403",
     "F405",
+]
+"src/sly/yacc.py" = [
+    "E741", # Ambiguous names? No, math variable names.
+]
+"src/sly/_typing_compat.py" = [
+    "PLW0603", # We update globals via global keyword to cache imported/created typing things.
 ]
 "tests/test_*.py" = [
     "RUF012", # Mutable class attributes.
