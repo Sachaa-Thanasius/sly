@@ -20,8 +20,8 @@ dependency_groups = ["cov"]
 depends = ["3.9", "3.10", "3.11", "3.12", "3.13"]
 commands = [["coverage", "combine"], ["coverage", "report"]]
 
-[env.benchmark_import]
-dependency_groups = ["bench"]
+[env.profile_import]
+dependency_groups = ["profile"]
 allowlist_externals = ["dot"]
 commands = [
     [
@@ -50,8 +50,8 @@ commands = [
     ],
 ]
 
-[env.benchmark_runtime]
-dependency_groups = ["bench"]
+[env.profile_runtime]
+dependency_groups = ["profile"]
 allowlist_externals = ["dot"]
 commands = [
     [
@@ -61,7 +61,7 @@ commands = [
         "-o",
         "log_runtime.pstats",
         "-m",
-        "examples.json",
+        "scripts.profile_runtime",
         "run",
     ],
     [

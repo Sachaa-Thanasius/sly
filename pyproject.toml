@@ -31,7 +31,7 @@ Documentation = "https://sly.readthedocs.io/en/latest/"
 dev = ["tox>=4.24.1"]
 test = ["pytest>=8"]
 cov = ["coverage>=7", "covdefaults"]
-bench = ["yelp-gprof2dot"]
+profile = ["yelp-gprof2dot"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sly"]
