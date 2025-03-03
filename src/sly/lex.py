@@ -218,22 +218,22 @@ class LexerMeta(type):
     """Metaclass for collecting lexing rules."""
 
     @classmethod
-    def __prepare__(cls, name: str, bases: tuple[type, ...], /, **kwds: _t.Any) -> LexerMetaDict:
+    def __prepare__(cls, name: str, bases: tuple[type, ...], /, **kwargs: _t.Any) -> LexerMetaDict:
         namespace = LexerMetaDict()
         namespace["_"] = _match_action_decorator
         namespace["before"] = _Before
         return namespace
 
-    def __new__(cls, name: str, bases: tuple[type, ...], namespace: LexerMetaDict, /, **kwds: _t.Any):
+    def __new__(cls, name: str, bases: tuple[type, ...], namespace: LexerMetaDict, /, **kwargs: _t.Any):
         del namespace["_"]
         del namespace["before"]
 
         # Create attributes for use in the actual class body
         final_namespace = {str(key): (str(val) if isinstance(val, TokenStr) else val) for key, val in namespace.items()}
-        return super().__new__(cls, name, bases, final_namespace, **kwds)
+        return super().__new__(cls, name, bases, final_namespace, **kwargs)
 
-    def __init__(self, name: str, bases: tuple[type, ...], namespace: LexerMetaDict, /, **kwds: _t.Any) -> None:
-        super().__init__(name, bases, namespace, **kwds)
+    def __init__(self, name: str, bases: tuple[type, ...], namespace: LexerMetaDict, /, **kwargs: _t.Any) -> None:
+        super().__init__(name, bases, namespace, **kwargs)
 
         # Attach various metadata to the class
         self._remap: dict[tuple[str, _t.Any], _t.Any] = namespace.remap

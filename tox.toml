@@ -61,7 +61,7 @@ commands = [
         "-o",
         "log_runtime.pstats",
         "-m",
-        "scripts.profile_runtime",
+        "tools.profile_runtime",
         "run",
     ],
     [
@@ -79,3 +79,6 @@ commands = [
         "log_runtime.dot",
     ],
 ]
+
+[env.profile_memory]
+commands = [["python", "-m", "tools.profile_memory"]]

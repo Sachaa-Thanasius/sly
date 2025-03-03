@@ -868,86 +868,6 @@ class Grammar:
 
         return result
 
-    def compute_first(self) -> dict[str, set[str]]:
-        """Compute the value of FIRST1(X) for all symbols."""
-
-        if self.First:
-            return self.First
-
-        # Terminals: Initialize to a set with just the terminal.
-        for t in self.Terminals:
-            self.First[t] = {t}
-        self.First["$end"] = {"$end"}
-
-        # Nonterminals: Initialize to the empty set.
-        for n in self.Nonterminals:
-            self.First[n] = set()
-
-        # Then propagate symbols until no change:
-        while True:
-            some_change = False
-            for n in self.Nonterminals:
-                num_before = len(self.First[n])
-                self.First[n].update(*[self._first(p.prod) for p in self.Prodnames[n]])
-                if num_before != len(self.First[n]):
-                    some_change = True
-
-            if not some_change:
-                break
-
-        return self.First
-
-    def compute_follow(self, start: _t.Optional[str] = None) -> dict[str, set[str]]:
-        """Computes all of the follow sets for every non-terminal symbol.
-
-        Notes
-        -----
-        The follow set is the set of all symbols that might follow a given non-terminal.
-        See the Dragon book, 2nd Ed. p. 189.
-        """
-
-        # If already computed, return the result
-        if self.Follow:
-            return self.Follow
-
-        # If first sets not computed yet, do that first.
-        if not self.First:
-            self.compute_first()
-
-        for k in self.Nonterminals:
-            self.Follow[k] = set()
-
-        # Add '$end' to the follow list of the start symbol
-        if not start:
-            start = self.Productions[1].name
-
-        self.Follow[start] = {"$end"}
-
-        _empty = {"<empty>"}
-
-        while True:
-            didadd = False
-            for p in self.Productions[1:]:
-                # Here is the production set
-                for i, B in enumerate(p.prod):
-                    if B in self.Nonterminals:
-                        # Okay. We got a non-terminal in a production
-                        fst = self._first(p.prod[i + 1 :])
-                        num_before = len(self.Follow[B])
-                        self.Follow[B] |= fst - _empty
-                        if num_before != len(self.Follow[B]):
-                            didadd = True
-
-                        if ("<empty>" in fst) or i == (len(p.prod) - 1):
-                            # Add elements of follow(a) to follow(b)
-                            num_before = len(self.Follow[B])
-                            self.Follow[B] |= self.Follow[p.name]
-                            if num_before != len(self.Follow[B]):
-                                didadd = True
-            if not didadd:
-                break
-        return self.Follow
-
     def build_lritems(self) -> None:
         """This function walks the list of productions and builds a complete set of the LR items.
 
@@ -1119,13 +1039,6 @@ class LRTable:
 
         # Build the tables
         self.grammar.build_lritems()
-
-        # TODO: Create an SLR or LR-specific grammar class and table class that use the first and follow functions
-        # based on how they worked in ply (see the last few commits where a bunch of the related machinery was removed).
-        # For the LALR parsing that LRTable currently does, they are useless.
-
-        # self.grammar.compute_first()
-        # self.grammar.compute_follow()
 
         self.lr_parse_table()
 
@@ -2070,14 +1983,14 @@ class ParserMeta(type):
     """Metaclass for collecting parsing rules."""
 
     @classmethod
-    def __prepare__(cls, name: str, bases: tuple[type, ...], /, **kwds: _t.Any) -> ParserMetaDict:
+    def __prepare__(cls, name: str, bases: tuple[type, ...], /, **kwargs: _t.Any) -> ParserMetaDict:
         namespace = ParserMetaDict()
         namespace["_"] = _rules_decorator
         return namespace
 
-    def __new__(cls, name: str, bases: tuple[type, ...], namespace: ParserMetaDict, /, **kwds: _t.Any):
+    def __new__(cls, name: str, bases: tuple[type, ...], namespace: ParserMetaDict, /, **kwargs: _t.Any):
         del namespace["_"]
-        return super().__new__(cls, name, bases, namespace, **kwds)
+        return super().__new__(cls, name, bases, namespace, **kwargs)
 
 
 _ConcreteSeqOfStr: _t.TypeAlias = "_t.Union[list[str], tuple[str, ...]]"
@@ -2160,56 +2073,53 @@ class Parser(metaclass=ParserMeta):
         cls._build(vars(cls).copy())
 
     @classmethod
-    def __validate_tokens(cls) -> bool:
+    def __validate_tokens(cls) -> _t.Optional[str]:
+        """Validate the tokens attribute and if that fails, return a string description of why."""
+
         if not hasattr(cls, "tokens"):
-            cls.log.error("No token list is defined")
-            return False
+            return "No token list is defined"
 
         if not cls.tokens:
-            cls.log.error("tokens is empty")
-            return False
+            return "tokens is empty"
 
         if "error" in cls.tokens:
-            cls.log.error("Illegal token name 'error'. Is a reserved word")
-            return False
+            return "Illegal token name 'error'. Is a reserved word"
 
-        return True
+        return None
 
     @classmethod
-    def __validate_precedence(cls) -> bool:
+    def __validate_precedence(cls) -> _t.Optional[str]:
+        """Validate the precedence attribute and if that fails, return a string description of why."""
+
         if not hasattr(cls, "precedence"):
             cls.__preclist = []
-            return True
+            return None
 
         preclist: list[tuple[str, str, int]] = []
         if not isinstance(cls.precedence, (list, tuple)):
-            cls.log.error("precedence must be a list or tuple")
-            return False
+            return "precedence must be a list or tuple"
 
         for level, p in enumerate(cls.precedence, start=1):
             if not isinstance(p, (list, tuple)):
-                cls.log.error("Bad precedence table entry %r. Must be a list or tuple", p)
-                return False
+                return f"Bad precedence table entry {p!r}. Must be a list or tuple"
 
             if len(p) < 2:
-                cls.log.error("Malformed precedence entry %r. Must be (assoc, term, ..., term)", p)
-                return False
+                return f"Malformed precedence entry {p!r}. Must be (assoc, term, ..., term)"
 
             if not all(isinstance(term, str) for term in p):
-                cls.log.error("precedence items must be strings")
-                return False
+                return "precedence items must be strings"
 
             assoc = p[0]
             preclist.extend((term, assoc, level) for term in p[1:])
 
         cls.__preclist = preclist
-        return True
+        return None
 
     @classmethod
-    def __validate_specification(cls) -> bool:
+    def __validate_specification(cls) -> _t.Optional[str]:
         """Validate various parts of the grammar specification."""
 
-        return cls.__validate_tokens() and cls.__validate_precedence()
+        return cls.__validate_tokens() or cls.__validate_precedence()
 
     @classmethod
     def __build_grammar(cls, rules: list[tuple[str, _t.Callable[..., _t.Any]]]) -> None:
@@ -2238,6 +2148,11 @@ class Parser(metaclass=ParserMeta):
                     grammar.add_production(prodname, syms, pfunc, rulefile, ruleline, name_aliases=na_state.aliases)
                 except GrammarError as e:  # noqa: PERF203
                     errors.append(str(e))
+
+        # The checks following this assume there are 1 or more valid productions.
+        if len(grammar.Productions) == 1:
+            msg = "\n".join(["Unable to build grammar - no grammar rules were valid.", *errors])
+            raise YaccError(msg)
 
         try:
             grammar.set_start(getattr(cls, "start", None), name_aliases=na_state.aliases)
@@ -2321,8 +2236,8 @@ class Parser(metaclass=ParserMeta):
         rules = cls.__collect_rules(definitions)
 
         # Validate other parts of the grammar specification
-        if not cls.__validate_specification():
-            msg = "Invalid parser specification."
+        if (spec_error := cls.__validate_specification()) is not None:
+            msg = f"Invalid parser specification\n{spec_error}"
             raise YaccError(msg)
 
         # Build the underlying grammar object
@@ -2405,9 +2320,8 @@ class Parser(metaclass=ParserMeta):
 
         # Set up position tracking
         track_positions = self.track_positions
-        if not hasattr(self, "_line_positions"):
-            self._line_positions = {}  # id: -> lineno
-            self._index_positions = {}  # id: -> (start, end)
+        self._line_positions = {}  # id: -> lineno
+        self._index_positions = {}  # id: -> (start, end)
 
         errtoken = None  # Err token
         while True:

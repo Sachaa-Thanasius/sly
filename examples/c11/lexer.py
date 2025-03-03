@@ -7,14 +7,7 @@ from collections.abc import Generator
 from sly import Lexer
 from sly.lex import LexError, Token, TokenStr
 
-from ._regex_helpers import (
-    _decimal_floating_constant,
-    _escape_sequence,
-    _hexadecimal_floating_constant,
-    _identifier,
-    _integer_constant,
-    _preprocessing_number,
-)
+from ._regex_helpers import _constant, _escape_sequence, _identifier, _preprocessing_number
 from .context import CNameContext
 
 
@@ -22,10 +15,6 @@ TYPE_CHECKING = False
 
 if TYPE_CHECKING:
     from sly.types import _
-
-_constant = "|".join(
-    f"({part})" for part in (_integer_constant, _decimal_floating_constant, _hexadecimal_floating_constant)
-)
 
 
 class CLexer(Lexer):
@@ -254,9 +243,7 @@ class CCharConstantLexer(Lexer):
 
     tokens = {CHAR_CHAR, INCORRECT_ESCAPE_SEQUENCE, CHAR_CONST_END, MISSING_TERMINATOR}
 
-    @_(_escape_sequence)
-    def CHAR_CHAR(self, t: Token):
-        pass
+    ignore_CHAR_CHAR = _escape_sequence
 
     @_(r"\\")
     def INCORRECT_ESCAPE_SEQUENCE(self, t: Token):
@@ -304,9 +291,7 @@ class CStringLiteralLexer(Lexer):
     def MISSING_TERMINATOR(self, t: Token):
         self.error(t, 'Missing terminating " character.')
 
-    @_(r".")
-    def STRING_CHAR(self, t: Token):
-        pass
+    ignore_STRING_CHAR = r"."
 
     def error(self, t: Token, msg: str | None = None):
         if msg is None:

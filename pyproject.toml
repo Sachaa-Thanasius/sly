@@ -140,6 +140,7 @@ extend-ignore = [
     "COM819",
     "ISC001",
     "ISC002",
+    "W293",   # Not recommended, but ruff format handles it as well.
 
     # ---- Project-specific rules
     # Readability

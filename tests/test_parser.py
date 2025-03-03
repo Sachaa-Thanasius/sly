@@ -1,7 +1,10 @@
 from typing import TYPE_CHECKING, Any
 
+import pytest
+
 from sly import Lexer, Parser
 from sly.lex import Token
+from sly.yacc import YaccError
 
 
 if TYPE_CHECKING:
@@ -43,6 +46,104 @@ class CalcLexer(Lexer):
 
     def __init__(self):
         self.errors: list[str] = []
+
+
+class TestBuildErrors:
+    def test_no_rules(self):
+        with pytest.raises(YaccError) as exc_info:
+
+            class MyParser(Parser):
+                tokens = {PLUS, MINUS, STRING}
+
+        assert exc_info.value.args[0] == "No grammar rules are defined."
+
+    def test_invalid_precedence_type(self):
+        with pytest.raises(YaccError) as exc_info:
+
+            class MyParser(Parser):
+                tokens = {PLUS, MINUS, STRING}
+
+                precedence = {("left", PLUS, MINUS)}
+
+        assert exc_info.value.args[0] == "Invalid parser specification\nprecedence must be a list or tuple"
+
+    def test_invalid_precedence_nested_type(self):
+        with pytest.raises(YaccError) as exc_info:
+
+            class MyParser(Parser):
+                tokens = {PLUS, MINUS, STRING}
+
+                precedence = [{"left": (PLUS, MINUS)}]
+
+        assert exc_info.value.args[0] == (
+            "Invalid parser specification\n"
+            "Bad precedence table entry {'left': ('PLUS', 'MINUS')}. Must be a list or tuple"
+        )
+
+    def test_duplicate_precedence_values(self):
+        with pytest.raises(YaccError) as exc_info:
+
+            class MyParser(Parser):
+                tokens = {PLUS, STRING}
+
+                precedence = [("left", PLUS), ("left", PLUS)]
+
+                @_("STRING PLUS")
+                def expr(self, p):
+                    pass
+
+        assert exc_info.value.args[0] == "Unable to build grammar.\nPrecedence already specified for terminal 'PLUS'."
+
+    def test_error_check_after_adding_productions(self):
+        with pytest.raises(YaccError) as exc_info:
+
+            class MyParser(Parser):
+                tokens = {PLUS, STRING}
+
+                @_('STRING "--" PLUS')
+                def expr(self, p):
+                    pass
+
+        assert exc_info.value.args[0].startswith("Unable to build grammar - no grammar rules were valid.\n")
+
+    def test_too_long_literal(self):
+        lineno = 0
+
+        with pytest.raises(YaccError) as exc_info:
+
+            class MyParser(Parser):
+                tokens = {PLUS, STRING}
+
+                @_('STRING "--" PLUS')
+                def expr(self, p):
+                    pass
+
+                nonlocal lineno
+                lineno = expr.__code__.co_firstlineno
+
+        assert exc_info.value.args[0].endswith(
+            f"{__file__}:{lineno}: Literal token \"--\" in rule 'expr' may only be a single character."
+        )
+
+        with pytest.raises(YaccError) as exc_info:
+
+            class MyParser(Parser):
+                tokens = {PLUS, STRING}
+
+                @_("STRING PLUS")
+                def expr(self, p):
+                    pass
+
+                @_('STRING "--" PLUS')
+                def expr(self, p):
+                    pass
+
+                nonlocal lineno
+                lineno = expr.__code__.co_firstlineno
+
+        assert exc_info.value.args[0].endswith(
+            f"{__file__}:{lineno}: Literal token \"--\" in rule 'expr' may only be a single character."
+        )
 
 
 class CalcParser(Parser):
