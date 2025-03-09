@@ -39,7 +39,6 @@ from __future__ import annotations
 import re
 
 from . import _typing_compat as _t
-from ._typing_compat import TYPE_CHECKING
 
 
 __all__ = ("Lexer",)
@@ -115,22 +114,22 @@ class Token:
 class TokenStr(str):
     __slots__ = ("key", "remap")
 
-    def __new__(cls, value: object, key: str, remap: _t.Optional[dict[tuple[str, _t.Any], _t.Any]] = None) -> _t.Self:
-        return super().__new__(cls, value)
+    key: str
+    remap: dict[tuple[str, str], str]
 
-    def __init__(self, value: object, key: str, remap: _t.Optional[dict[tuple[str, _t.Any], _t.Any]] = None) -> None:
+    def __new__(cls, value: object, key: str, remap: dict[tuple[str, str], str]) -> _t.Self:
+        self = super().__new__(cls, value)
         self.key = key
         self.remap = remap
+        return self
 
     def __setitem__(self, key: str, value: str, /) -> None:
         # Implementation of TOKEN[value] = NEWTOKEN
-        if self.remap is not None:
-            self.remap[(self.key, key)] = value
+        self.remap[(self.key, key)] = value
 
     def __delitem__(self, key: str, /) -> None:
         # Implementation of del TOKEN[value]
-        if self.remap is not None:
-            self.remap[(self.key, key)] = self.key
+        self.remap[(self.key, key)] = self.key
 
 
 class _Before:
@@ -157,7 +156,7 @@ class LexerMetaDict(dict[str, object]):
     def __init__(self) -> None:
         self.before: dict[str, str] = {}
         self.delete: list[str] = []
-        self.remap: dict[tuple[str, _t.Any], _t.Any] = {}
+        self.remap: dict[tuple[str, str], str] = {}
 
     def __setitem__(self, key: str, value: _t.Any, /) -> None:
         if isinstance(value, str):
@@ -236,7 +235,7 @@ class LexerMeta(type):
         super().__init__(name, bases, namespace, **kwargs)
 
         # Attach various metadata to the class
-        self._remap: dict[tuple[str, _t.Any], _t.Any] = namespace.remap
+        self._remap: dict[tuple[str, str], str] = namespace.remap
         self._before: dict[str, str] = namespace.before
         self._delete: list[str] = namespace.delete
 
@@ -282,10 +281,9 @@ class Lexer(metaclass=LexerMeta):
     """The regex module to use as the regex compiler. Defaults to `re`."""
 
     # ---- Internal attributes
-    if TYPE_CHECKING:
-        # Created by _build(), which is called in __init_subclass__().
-        _rules: _t.ClassVar[list[tuple[str, _t.Union[str, _TokenMatchAction]]]]
-        _master_re: _t.ClassVar[re.Pattern[str]]
+    # Created by _build(), which is called in __init_subclass__().
+    _rules: _t.ClassVar[list[tuple[str, _t.Union[str, _TokenMatchAction]]]]
+    _master_re: _t.ClassVar[re.Pattern[str]]
 
     _token_names: _t.ClassVar[set[str]] = set()
     _token_funcs: _t.ClassVar[dict[str, _TokenMatchAction]] = {}
@@ -298,7 +296,7 @@ class Lexer(metaclass=LexerMeta):
         self.index: int = -1
         self.lineno: int = -1
 
-        # ---- Backtracking-related functions
+        # Backtracking-related functions
         self.mark: _t.Callable[[], None] = lambda: None
         self.accept: _t.Callable[[], None] = lambda: None
         self.reject: _t.Callable[[], None] = lambda: None
@@ -307,10 +305,10 @@ class Lexer(metaclass=LexerMeta):
         self.__state_stack: _t.Optional[list[type[Lexer]]] = None
         self.__set_state: _t.Optional[_t.Callable[[type[Lexer]], None]] = None
 
-    def __init_subclass__(cls, /) -> None:
+    def __init_subclass__(cls, /, **kwargs: _t.Any) -> None:
         """Collect the lexing rules and build the master regular expression."""
 
-        super().__init_subclass__()
+        super().__init_subclass__(**kwargs)
         cls._build(vars(cls).copy())
 
     @classmethod
@@ -394,14 +392,11 @@ class Lexer(metaclass=LexerMeta):
                 cls._remapping[key] = {}
             cls._remapping[key][val] = newtok
 
-        remapped_toks: set[str] = set()
-        for d in cls._remapping.values():
-            remapped_toks.update(d.values())
+        remapped_toks: set[str] = {val for d in cls._remapping.values() for val in d.values()}
 
-        undefined = remapped_toks - set(cls._token_names)
+        undefined = remapped_toks - cls._token_names
         if undefined:
-            missing = ", ".join(undefined)
-            msg = f"{missing} not included in token(s)."
+            msg = f"{', '.join(undefined)} not included in token(s)."
             raise LexerBuildError(msg)
 
         cls._collect_rules(potential_rules)
@@ -449,13 +444,14 @@ class Lexer(metaclass=LexerMeta):
             msg = "ignore specifier must be a string."
             raise LexerBuildError(msg)
 
-        if not all(isinstance(lit, str) for lit in cls.literals):
-            msg = "literals must be specified as strings."
-            raise LexerBuildError(msg)
+        for lit in cls.literals:
+            if not isinstance(lit, str):
+                msg = "literals must be specified as strings."
+                raise LexerBuildError(msg)
 
-        if not all(len(lit) == 1 for lit in cls.literals):
-            msg = "literals must each only be a single character."
-            raise LexerBuildError(msg)
+            if len(lit) != 1:
+                msg = "literals must each only be a single character."
+                raise LexerBuildError(msg)
 
     def begin(self, state: type[Lexer]) -> None:
         """Begin a new lexer state."""
@@ -485,14 +481,13 @@ class Lexer(metaclass=LexerMeta):
     def tokenize(self, text: str, lineno: int = 1, index: int = 0) -> _t.Generator[Token]:
         """Tokenize the given text."""
 
-        MISSING: _t.Any = object()  # Placeholder for late initialization.
-
-        _ignored_tokens: set[str] = MISSING
-        _master_re: re.Pattern[str] = MISSING
-        _ignore: str = MISSING
-        _token_funcs: dict[str, _TokenMatchAction] = MISSING
-        _literals: set[str] = MISSING
-        _remapping: dict[str, dict[str, str]] = MISSING
+        curr_cls = type(self)
+        _ignored_tokens = curr_cls._ignored_tokens
+        _master_re = curr_cls._master_re
+        _ignore = curr_cls.ignore
+        _token_funcs = curr_cls._token_funcs
+        _literals = curr_cls.literals
+        _remapping = curr_cls._remapping
 
         # ---- Support for state changes
         def _set_state(cls: type[Lexer]) -> None:
@@ -505,10 +500,9 @@ class Lexer(metaclass=LexerMeta):
             _remapping = cls._remapping
 
         self.__set_state = _set_state
-        _set_state(type(self))
 
         # ---- Support for backtracking
-        _mark_stack: list[tuple[type[_t.Self], int, int]] = []
+        _mark_stack: list[tuple[type[Lexer], int, int]] = []
 
         def _mark() -> None:
             _mark_stack.append((type(self), index, lineno))

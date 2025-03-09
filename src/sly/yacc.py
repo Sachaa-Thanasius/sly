@@ -239,24 +239,7 @@ class YaccProduction:
 class Production:
     """This class stores the raw information about a single production or grammar rule.
 
-    A grammar rule refers to a specification such as this: "expr : expr PLUS term".
-
-    Parameters
-    ----------
-    number: int
-        Production number.
-    name: str
-        Name of the production, e.g. "expr".
-    prod: list[str]
-        A list of symbols on the right side, e.g. ["expr", "PLUS", "term"].
-    func: _t.Callable[..., _t.Any]
-        Function that executes on reduce.
-    prec: tuple[str, int], default=("right", 0)
-        Production precedence level.
-    file: str, default=""
-        File where production function is defined.
-    line: int, default=0
-        Line number where production function is defined.
+    A grammar rule refers to a specification such as this: ``expr : expr PLUS term``.
 
     Attributes
     ----------
@@ -268,7 +251,7 @@ class Production:
         A list of symbols on the right side, e.g. ("expr", "PLUS", "term").
     prec: tuple[str, int]
         Production precedence level.
-    func: _t.Callable
+    func: _t.Callable[[Parser, YaccProduction], _t.Any]
         Function that executes on reduce.
     file: str
         File where production function is defined.
@@ -276,7 +259,7 @@ class Production:
         Line number where production function is defined.
     len: int
         Length of the production (number of symbols on right hand side).
-    usyms: list[str]
+    usyms: set[str]
         Set of unique symbols found in the production.
     """
 
@@ -993,21 +976,19 @@ def traverse(
     N[x] = d = len(stack)
     F[x] = FP(x)  # F(X) <- F'(x)
 
-    rel = R(x)  # Get y's related to x
-    for y in rel:
+    for y in R(x):  # Get y's related to x
         if N[y] == 0:
             traverse(y, N, stack, F, X, R, FP)
         N[x] = min(N[x], N[y])
         if y in F:
             F[x] |= F[y]
+
     if N[x] == d:
         N[stack[-1]] = sys.maxsize
         F[stack[-1]] = F[x]
-        element = stack.pop()
-        while element != x:
+        while stack.pop() != x:
             N[stack[-1]] = sys.maxsize
             F[stack[-1]] = F[x]
-            element = stack.pop()
 
 
 class LALRError(YaccError):
@@ -1068,7 +1049,7 @@ class LRTable:
         self._add_count += 1
 
         # Add everything in I to J
-        J: list[LRItem] = I[:]
+        J: list[LRItem] = I.copy()
         didadd = True
         while didadd:
             didadd = False
@@ -1109,7 +1090,7 @@ class LRTable:
         except KeyError:
             pass
         else:
-            assert isinstance(g, (list, type(None)))
+            assert isinstance(g, list) or (g is None)
             return g
 
         # Now we generate the goto set in a way that guarantees uniqueness of the result
@@ -1447,9 +1428,11 @@ class LRTable:
                     la = p.lookaheads[state] = set()
 
                 try:
-                    la |= followset[trans]
+                    fs = followset[trans]
                 except KeyError:
                     pass
+                else:
+                    la |= fs
 
     def add_lalr_lookaheads(self, C: list[list[LRItem]]) -> None:
         """This function does all of the work of adding lookahead information for use with LALR parsing."""
@@ -2066,10 +2049,10 @@ class Parser(metaclass=ParserMeta):
         # Current production
         self.production: Production = MISSING
 
-    def __init_subclass__(cls, /) -> None:
+    def __init_subclass__(cls, /, **kwargs: _t.Any) -> None:
         """Collect the parser rules, build the grammar, and build the tables."""
 
-        super().__init_subclass__()
+        super().__init_subclass__(**kwargs)
         cls._build(vars(cls).copy())
 
     @classmethod
@@ -2345,9 +2328,9 @@ class Parser(metaclass=ParserMeta):
 
             if t is not None:
                 if t > 0:
+                    # shift a symbol on the stack
                     assert self.lookahead is not None
 
-                    # shift a symbol on the stack
                     statestack.append(t)
                     self.state = t
 
@@ -2397,11 +2380,14 @@ class Parser(metaclass=ParserMeta):
                     statestack.append(self.state)
                     continue
 
-                else:  # t == 0
+                else:
+                    # t == 0
                     n = symstack[-1]
                     return n.value
 
-            else:  # t is None
+            else:
+                # t is None
+
                 # We have some kind of parsing error here. To handle
                 # this, we are going to push the current token onto
                 # the tokenstack and replace it with an 'error' token.
