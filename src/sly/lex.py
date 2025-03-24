@@ -412,11 +412,6 @@ class Lexer(metaclass=LexerMeta):
 
             parts.append(part)
 
-        # TODO: Is this conditional a result of _build() originally being called in the metaclass?
-        # Can we remove it now?
-        if not parts:
-            return
-
         # Form the master regular expression
         cls._master_re = cls.regex_module.compile("|".join(parts), cls.reflags)
 
