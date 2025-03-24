@@ -243,26 +243,20 @@ class LexerMeta(type):
 class Lexer(metaclass=LexerMeta):
     """The class used to break input text into a collection of tokens specified by regular expression rules.
 
+    If a subclass overrides the constructor, it must invoke the base class constructor (`Lexer.__init__()`) before
+    doing anything else to the lexer.
+
     Attributes
     ----------
     text: str
         The text being lexed. Populated via `tokenize()`.
-    index: int
-        Current index of the lexer within the text.
     lineno: int
         Current line number of the lexer within the text.
+    index: int
+        Current index of the lexer within the text.
     """
 
-    __slots__ = (
-        "text",
-        "index",
-        "lineno",
-        "mark",
-        "accept",
-        "reject",
-        "__state_stack",
-        "__set_state",
-    )
+    __slots__ = ("text", "index", "lineno", "_mark_stack", "__state_stack")
 
     # ---- Public class attributes.
     tokens: _t.ClassVar[set[str]] = set()
@@ -281,7 +275,7 @@ class Lexer(metaclass=LexerMeta):
     """The regex module to use as the regex compiler. Defaults to `re`."""
 
     # ---- Internal attributes
-    # Created by _build(), which is called in __init_subclass__().
+    # These two are created by _build(), which is called in __init_subclass__().
     _rules: _t.ClassVar[list[tuple[str, _t.Union[str, _TokenMatchAction]]]]
     _master_re: _t.ClassVar[re.Pattern[str]]
 
@@ -289,21 +283,6 @@ class Lexer(metaclass=LexerMeta):
     _token_funcs: _t.ClassVar[dict[str, _TokenMatchAction]] = {}
     _ignored_tokens: _t.ClassVar[set[str]] = set()
     _remapping: _t.ClassVar[dict[str, dict[str, str]]] = {}
-
-    def __init__(self) -> None:
-        # ---- Public interface
-        self.text: str = ""
-        self.index: int = -1
-        self.lineno: int = -1
-
-        # Backtracking-related functions
-        self.mark: _t.Callable[[], None] = lambda: None
-        self.accept: _t.Callable[[], None] = lambda: None
-        self.reject: _t.Callable[[], None] = lambda: None
-
-        # ---- Internal state
-        self.__state_stack: _t.Optional[list[type[Lexer]]] = None
-        self.__set_state: _t.Optional[_t.Callable[[type[Lexer]], None]] = None
 
     def __init_subclass__(cls, /, **kwargs: _t.Any) -> None:
         """Collect the lexing rules and build the master regular expression."""
@@ -332,7 +311,7 @@ class Lexer(metaclass=LexerMeta):
 
         # Collect all previous rules from base classes
         rules: list[tuple[str, _t.Any]] = [
-            rule for base in cls.__bases__ if (issubclass(base, Lexer) and base is not Lexer) for rule in base._rules
+            rule for base in cls.__bases__ if (base is not Lexer and issubclass(base, Lexer)) for rule in base._rules
         ]
 
         # Dictionary of previous rules
@@ -433,6 +412,8 @@ class Lexer(metaclass=LexerMeta):
 
             parts.append(part)
 
+        # TODO: Is this conditional a result of _build() originally being called in the metaclass?
+        # Can we remove it now?
         if not parts:
             return
 
@@ -453,138 +434,123 @@ class Lexer(metaclass=LexerMeta):
                 msg = "literals must each only be a single character."
                 raise LexerBuildError(msg)
 
-    def begin(self, state: type[Lexer]) -> None:
-        """Begin a new lexer state."""
+    def __init__(self, text: str = "", lineno: int = 1, index: int = 0) -> None:
+        # ---- Public interface
+        self.text: str = text
+        self.lineno: int = lineno
+        self.index: int = index
 
-        if not issubclass(state, Lexer):
-            msg = "state must be a subclass of Lexer."
-            raise TypeError(msg)
+        # ---- Internal state
+        self._mark_stack: list[tuple[int, int]] = []
+        self.__state_stack: list[type[Lexer]] = []
 
-        if self.__set_state:
-            self.__set_state(state)
-        self.__class__ = state  # pyright: ignore [reportAttributeAccessIssue]
+    def __iter__(self, /):
+        return self
 
-    def push_state(self, state: type[Lexer]) -> None:
-        """Push a new lexer state onto the stack."""
+    def __next__(self, /) -> Token:
+        while True:
+            # Case 1: Skip ignored characters.
+            # At the same time, check to see if we are beyond the bounds the text and thus are done.
+            try:
+                if self.text[self.index] in self.ignore:
+                    self.index += 1
+                    continue
+            except IndexError:
+                raise StopIteration from None
 
-        if self.__state_stack is None:
-            self.__state_stack = []
-        self.__state_stack.append(type(self))
-        self.begin(state)
+            # Case 2: Match a specified token and call its action.
+            if m := self._master_re.match(self.text, self.index):
+                assert m.lastgroup is not None, "There should always be a matched named group."
 
-    def pop_state(self) -> None:
-        """Pop a lexer state from the stack."""
+                tok = Token(m.lastgroup, m.group(), self.lineno, self.index, m.end())
+                self.index = tok.end
 
-        assert self.__state_stack
-        self.begin(self.__state_stack.pop())
+                if tok.type in self._remapping:
+                    tok.type = self._remapping[tok.type].get(tok.value, tok.type)
 
-    def tokenize(self, text: str, lineno: int = 1, index: int = 0) -> _t.Generator[Token]:
+                if tok.type in self._token_funcs:
+                    tok = self._token_funcs[tok.type](self, tok)
+
+                    if tok is None:
+                        continue
+
+                if tok.type in self._ignored_tokens:
+                    continue
+
+                return tok
+
+            # Case 3: Match a specified character literal.
+            elif (value := self.text[self.index]) in self.literals:
+                tok = Token(value, value, self.lineno, self.index, self.index + 1)
+                self.index += 1
+                return tok
+
+            # Case 4: Handle lexing errors by either spitting out a replacement token or moving on.
+            else:
+                tok = Token("ERROR", self.text[self.index :], self.lineno, self.index)
+                tok = self.error(tok)
+                if tok is not None:
+                    tok.end = self.index
+                    return tok
+
+        msg = "Should be unreachable."
+        raise RuntimeError(msg)
+
+    def tokenize(self, text: str, lineno: int = 1, index: int = 0) -> _t.Iterator[Token]:
         """Tokenize the given text."""
 
-        curr_cls = type(self)
-        _ignored_tokens = curr_cls._ignored_tokens
-        _master_re = curr_cls._master_re
-        _ignore = curr_cls.ignore
-        _token_funcs = curr_cls._token_funcs
-        _literals = curr_cls.literals
-        _remapping = curr_cls._remapping
-
-        # ---- Support for state changes
-        def _set_state(cls: type[Lexer]) -> None:
-            nonlocal _ignored_tokens, _master_re, _ignore, _token_funcs, _literals, _remapping
-            _ignored_tokens = cls._ignored_tokens
-            _master_re = cls._master_re
-            _ignore = cls.ignore
-            _token_funcs = cls._token_funcs
-            _literals = cls.literals
-            _remapping = cls._remapping
-
-        self.__set_state = _set_state
-
-        # ---- Support for backtracking
-        _mark_stack: list[tuple[type[Lexer], int, int]] = []
-
-        def _mark() -> None:
-            _mark_stack.append((type(self), index, lineno))
-
-        self.mark = _mark
-
-        def _accept() -> None:
-            _mark_stack.pop()
-
-        self.accept = _accept
-
-        def _reject() -> None:
-            nonlocal index, lineno
-            cls, index, lineno = _mark_stack[-1]
-            _set_state(cls)
-
-        self.reject = _reject
-
-        # ---- Main tokenization function
         self.text = text
-        try:
-            while True:
-                # Case 1: An ignored character.
-                try:
-                    if text[index] in _ignore:
-                        index += 1
-                        continue
-                except IndexError:
-                    return
+        self.lineno = lineno
+        self.index = index
 
-                # Case 2: A token match.
-                if m := _master_re.match(text, index):
-                    assert m.lastgroup is not None, "There should always be a matched named group."
-
-                    tok = Token(m.lastgroup, m.group(), lineno, index, m.end())
-                    index = tok.end
-
-                    if tok.type in _remapping:
-                        tok.type = _remapping[tok.type].get(tok.value, tok.type)
-
-                    if tok.type in _token_funcs:
-                        self.index, self.lineno = (index, lineno)
-                        tok = _token_funcs[tok.type](self, tok)
-                        index, lineno = (self.index, self.lineno)
-
-                        if not tok:
-                            continue
-
-                    if tok.type in _ignored_tokens:
-                        continue
-
-                    yield tok
-
-                # Case 3: A character literal.
-                elif (value := text[index]) in _literals:
-                    tok = Token(value, value, lineno, index, index + 1)
-                    index += 1
-                    yield tok
-
-                # Case 4: A lexing error.
-                else:
-                    self.index, self.lineno = (index, lineno)
-
-                    tok = Token("ERROR", text[index:], lineno, index)
-                    tok = self.error(tok)
-                    if tok is not None:
-                        tok.end = self.index
-                        yield tok
-
-                    index, lineno = (self.index, self.lineno)
-
-        # Set the final state of the lexer before exiting (even if exception)
-        finally:
-            self.text = text
-            self.index = index
-            self.lineno = lineno
+        return self
 
     def error(self, t: Token) -> _t.Optional[Token]:
         """Default implementation of the error handler. This may be overridden in subclasses."""
 
         msg = f"Illegal character {t.value[0]!r} at index {self.index}."
         raise LexError(msg, t.value, self.index)
+
+    def mark(self) -> None:
+        """Mark the current position to potentially backtrack to."""
+
+        self._mark_stack.append((self.index, self.lineno))
+
+    def accept(self) -> None:
+        """Accept the current position."""
+
+        self._mark_stack.pop()
+
+    def reject(self) -> None:
+        """Reject the current position and backtrack to the saved position."""
+
+        self.index, self.lineno = self._mark_stack[-1]
+
+    def begin(self, state: type[Lexer]) -> None:
+        """Begin a new lexer state.
+
+        Raises
+        ------
+        TypeError
+            If `state` is not a subclass of `Lexer`.
+        """
+
+        if not issubclass(state, Lexer):
+            msg = "state must be a subclass of Lexer."
+            raise TypeError(msg)
+
+        self.__class__ = state  # pyright: ignore [reportAttributeAccessIssue]
+
+    def push_state(self, state: type[Lexer]) -> None:
+        """Push a new lexer state onto the stack."""
+
+        self.__state_stack.append(type(self))
+        self.begin(state)
+
+    def pop_state(self) -> None:
+        """Pop a lexer state from the stack."""
+
+        self.begin(self.__state_stack.pop())
 
 
 # endregion

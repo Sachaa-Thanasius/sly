@@ -27,8 +27,8 @@ if TYPE_CHECKING:
 #   - Backtracking via mark(), accept(), and reject().
 
 
-class TestBuildErrors:
-    """Tests related to errors raised when building lexers."""
+class TestInvalidConstruction:
+    """Tests related to errors raised when constructing lexers."""
 
     def test_undeclared_token(self):
         with pytest.raises(LexerBuildError) as exc_info:
@@ -108,32 +108,6 @@ class TestBuildErrors:
 
         assert exc_info.value.args[0] == "ignore specifier must be a string."
 
-    def test_invalid_state_class(self):
-        class InvalidLexerB:
-            pass
-
-        class LexerA(Lexer):
-            tokens = {"PLUS", "MINUS", "NUMBER"}
-
-            ignore = " \t"
-            ignore_newline = "\n"
-
-            PLUS = r"\+"
-            MINUS = "-"
-            NUMBER = r"\d+"
-
-            @_(r"[ \t]*\#")
-            def DIRECTIVE(self, t: Token):
-                self.push_state(InvalidLexerB)
-
-        source = "1 + 2 - 3\n# pragma ...\n"
-
-        lexer = LexerA()
-        with pytest.raises(TypeError) as exc_info:
-            _ = list(lexer.tokenize(source))
-
-        assert exc_info.value.args[0] == "state must be a subclass of Lexer."
-
 
 def test_empty_with_defined_tokens():
     class MyLexer(Lexer):
@@ -179,6 +153,33 @@ def test_override_rule_specifier_with_callable_2():
         @_(r"\w+")
         def NUMBER(self, t: Token) -> None:
             raise NotImplementedError
+
+
+def test_invalid_state_class():
+    class InvalidLexerB:
+        pass
+
+    class LexerA(Lexer):
+        tokens = {"PLUS", "MINUS", "NUMBER"}
+
+        ignore = " \t"
+        ignore_newline = "\n"
+
+        PLUS = r"\+"
+        MINUS = "-"
+        NUMBER = r"\d+"
+
+        @_(r"[ \t]*\#")
+        def DIRECTIVE(self, t: Token):
+            self.push_state(InvalidLexerB)
+
+    source = "1 + 2 - 3\n# pragma ...\n"
+
+    lexer = LexerA()
+    with pytest.raises(TypeError) as exc_info:
+        _ = list(lexer.tokenize(source))
+
+    assert exc_info.value.args[0] == "state must be a subclass of Lexer."
 
 
 def test_default_error_on_invalid_token():
@@ -298,6 +299,7 @@ class CalcLexer(Lexer):
         return None
 
     def __init__(self):
+        super().__init__()
         self.errors: list[str] = []
 
 
@@ -349,6 +351,7 @@ class ModernCalcLexer(Lexer):
         return None
 
     def __init__(self):
+        super().__init__()
         self.errors: list[str] = []
 
 

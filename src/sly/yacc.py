@@ -505,7 +505,7 @@ class Grammar:
         self.Productions: list[Production] = [None]  # pyright: ignore [reportAttributeAccessIssue]
         self.Prodnames: dict[str, list[Production]] = {}
         self.Prodmap: dict[str, Production] = {}
-        self.Terminals: dict[str, list[int]] = dict({term: [] for term in terminals}, error=[])
+        self.Terminals: dict[str, list[int]] = {term: [] for term in terminals} | {"error": []}
         self.Nonterminals: dict[str, list[int]] = {}
         self.First: dict[str, set[str]] = {}
         self.Follow: dict[str, set[str]] = {}

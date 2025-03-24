@@ -227,6 +227,7 @@ class CLexer(Lexer):
         raise LexError(msg, t.value, self.index)
 
     def __init__(self, context: CNameContext):
+        super().__init__()
         self.context = context
 
         self._char_const_start: Token | None = None

@@ -41,7 +41,7 @@ packages = ["src/sly"]
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib", "--strict-markers", "--strict-config"]
-testpaths = "tests"
+testpaths = ["tests"]
 
 [tool.coverage.run]
 plugins = ["covdefaults"]
@@ -223,3 +223,4 @@ reportImportCycles = "none"                    # Occasionally not a false positi
 reportPropertyTypeMismatch = "error"
 reportShadowedImports = "error"
 reportUnnecessaryTypeIgnoreComment = "warning"
+reportMissingSuperCall = "none"

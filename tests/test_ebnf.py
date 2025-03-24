@@ -42,6 +42,7 @@ class CalcLexer(Lexer):
         self.index += 1
 
     def __init__(self) -> None:
+        super().__init__()
         self.errors: list[str] = []
 
 
@@ -49,6 +50,7 @@ class CalcParser(Parser):
     tokens = CalcLexer.tokens
 
     def __init__(self) -> None:
+        super().__init__()
         self.names: dict[str, Any] = {}
         self.errors: list[Token] = []
 
