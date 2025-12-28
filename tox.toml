@@ -1,9 +1,10 @@
 
 requires = ["tox>=4.24.1"]
-env_list = ["coverage_clean", "3.9", "3.10", "3.11", "3.12", "3.13", "coverage"]
+env_list = ["coverage_clean", "3.10", "3.11", "3.12", "3.13", "3.14", "coverage"]
 skip_missing_interpreters = true
 
 [env_run_base]
+description = "Run tests with pytest under {env_name}."
 package = "wheel"
 wheel_build_env = ".pkg"
 dependency_groups = ["test", "cov"]
@@ -17,7 +18,8 @@ commands = [["coverage", "erase"]]
 [env.coverage]
 skip_install = true
 dependency_groups = ["cov"]
-depends = ["3.9", "3.10", "3.11", "3.12", "3.13"]
+# NOTE: Keep in sync with top-level env_list.
+depends = ["3.10", "3.11", "3.12", "3.13", "3.14"]
 commands = [["coverage", "combine"], ["coverage", "report"]]
 
 [env.profile_import]

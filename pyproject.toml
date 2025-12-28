@@ -1,22 +1,21 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["flit_core>=3.12,<4"]
+build-backend = "flit_core.buildapi"
 
 [project]
 name = "sly"
 description = "SLY - Sly Lex Yacc"
 version = "0.6.0"
-requires-python = ">=3.9"
-readme = "README.rst"
+requires-python = ">=3.10"
+readme = { file = "README.rst", content-type = "text/x-rst" }
 license = "BSD-3-Clause"
+license-files = ["LICENSE"]
 authors = [{ name = "David Beazley", email = "dave@dabeaz.com" }]
 maintainers = [{ name = "Sachaa-Thanasius", email = "sachaathanasius@gmail.com" }]
 classifiers = [
-    "License :: OSI Approved :: BSD License",
     "Natural Language :: English",
     "Operating System :: OS Independent",
     "Programming Language :: Python",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -28,20 +27,22 @@ Homepage = "https://github.com/Sachaa-Thanasius/sly/tree/modernization"
 Documentation = "https://sly.readthedocs.io/en/latest/"
 
 [dependency-groups]
-dev = ["tox>=4.24.1"]
 test = ["pytest>=8"]
 cov = ["coverage>=7", "covdefaults"]
 profile = ["yelp-gprof2dot"]
+dev = [
+    "tox>=4.24.1",
+    { include-group = "test" },
+    { include-group = "cov" },
+    { include-group = "profile" },
+]
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/sly"]
 
-
-# ---- Test config
+# -------- Test config --------
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib", "--strict-markers", "--strict-config"]
-testpaths = ["tests"]
+filterwarnings = ["error"]
 
 [tool.coverage.run]
 plugins = ["covdefaults"]
@@ -57,15 +58,15 @@ fail_under = 90
 exclude_lines = ["^\\s*(?:el)?if TYPE_CHECKING:$"]
 
 
-# ---- Linter config
+# -------- Linter config --------
 
 [tool.ruff]
 include = ["src/sly/*.py"]
 line-length = 120
 
-[tool.ruff.lint]
 typing-modules = ["sly._typing_compat"]
 
+[tool.ruff.lint]
 select = [
     "A",
     "ANN",
@@ -118,7 +119,6 @@ extend-ignore = [
     "C90",     # McCabe complexity.
     "ANN204",  # Special method return types are usually implicit and/or known by type checker.
     "ANN401",  # Any is needed for some annotations.
-    "UP038",   # isinstance performs better with tuples than unions.
     "PT001",   # pytest recommends against empty parentheses on pytest.fixture.
     "TC001",   # Don't eagerly put things in TYPE_CHECKING blocks.
     "TC002",   # Don't eagerly put things in TYPE_CHECKING blocks.
@@ -140,15 +140,16 @@ extend-ignore = [
     "COM819",
     "ISC001",
     "ISC002",
+    "W291",   # Not recommended, but ruff format handles it as well.
     "W293",   # Not recommended, but ruff format handles it as well.
 
     # ---- Project-specific rules
     # Readability
-    "RET505", # el(se|if) after return.
-    "RET506", # el(se|if) after raise.
-    "RET507", # el(se|if) after continue.
-    "RET508", # el(se|if) after break.
     "SIM108", # if-else instead of a ternary.
+    "RET505", # elif/else after return.
+    "RET506", # elif/else after raise.
+    "RET507", # elif/else after continue.
+    "RET508", # elif/else after break.
 
     # Other
     "PLR",    # It's a parser generator; it's going to be complex.
@@ -169,7 +170,11 @@ combine-as-imports = true
 [tool.ruff.lint.pyupgrade]
 keep-runtime-typing = true
 
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
 [tool.ruff.lint.per-file-ignores]
+# ---- Library code
 "**/__init__.py" = [
     # Ruff doesn't understand using star imports to export names in a package.
     "F403",
@@ -181,6 +186,8 @@ keep-runtime-typing = true
 "src/sly/_typing_compat.py" = [
     "PLW0603", # We update globals via global keyword to cache imported/created typing things.
 ]
+
+# ---- Examples and test code
 "tests/test_*.py" = [
     "RUF012", # Mutable class attributes.
     "F811",   # Redefining methods within Lexer/Parser subclasses is allowed because of metaclass hackery.
@@ -204,12 +211,12 @@ keep-runtime-typing = true
 ]
 
 
-# ---- Type-checker config
+# -------- Type-checker config --------
 
 [tool.pyright]
 include = ["src/sly"]
 ignore = ["examples/calc*", "examples/schcls.py", "tests"]
-pythonVersion = "3.9"
+pythonVersion = "3.10"
 pythonPlatform = "All"
 typeCheckingMode = "strict"
 
