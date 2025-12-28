@@ -24,7 +24,7 @@ class AST:
                 msg = f"Expected {len(hints)} arguments"
                 raise TypeError(msg)
 
-            for arg, (name, val) in zip(args, hints):
+            for arg, (name, val) in zip(args, hints, strict=True):
                 if isinstance(val, str):
                     val = getattr(mod, val)  # noqa: PLW2901
                 if not isinstance(arg, val):

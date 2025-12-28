@@ -1,4 +1,4 @@
-# region License
+# region -------- License --------
 # -----------------------------------------------------------------------------
 # sly: yacc.py
 #
@@ -142,15 +142,15 @@ class YaccSymbol:
         self,
         type: str,  # noqa: A002
         value: _t.Any = None,
-        lineno: _t.Optional[int] = None,
-        index: _t.Optional[int] = None,
-        end: _t.Optional[int] = None,
+        lineno: int | None = None,
+        index: int | None = None,
+        end: int | None = None,
     ) -> None:
         self.type: str = type
         self.value: _t.Any = value
-        self.lineno: _t.Optional[int] = lineno
-        self.index: _t.Optional[int] = index
-        self.end: _t.Optional[int] = end
+        self.lineno: int | None = lineno
+        self.index: int | None = index
+        self.end: int | None = end
 
     def __str__(self) -> str:
         return self.type
@@ -172,7 +172,7 @@ class YaccProduction:
     # raises.
     __slots__ = ("_slice", "_namemap", "_stack")
 
-    def __init__(self, s: list[YaccSymbol], stack: _t.Optional[list[YaccSymbol]] = None) -> None:
+    def __init__(self, s: list[YaccSymbol], stack: list[YaccSymbol] | None = None) -> None:
         self._slice: list[YaccSymbol] = s
         self._namemap: dict[str, _t.Callable[[list[YaccSymbol]], _t.Any]] = {}
         self._stack: list[YaccSymbol] = stack if (stack is not None) else []
@@ -202,7 +202,7 @@ class YaccProduction:
         raise AttributeError(msg)
 
     @property
-    def end(self) -> _t.Optional[int]:
+    def end(self) -> int | None:
         return next((tok.end for tok in reversed(self._slice) if tok.end), None)
 
     def __getitem__(self, index: int, /) -> _t.Any:
@@ -347,7 +347,7 @@ class Production:
 
         # List of all LR items for the production
         self.lr_items: list[LRItem] = []
-        self.lr_next: _t.Optional[LRItem] = None
+        self.lr_next: LRItem | None = None
 
         self.lr0_added: int = 0
 
@@ -373,7 +373,7 @@ class Production:
     def __getitem__(self, index: int, /) -> str:
         return self.prod[index]
 
-    def lr_item(self, n: int, prodnames: dict[str, list[Production]]) -> _t.Optional[LRItem]:
+    def lr_item(self, n: int, prodnames: dict[str, list[Production]]) -> LRItem | None:
         """Return the nth lr_item from the production (or None if at the end)."""
 
         if n > len(self.prod):
@@ -439,16 +439,16 @@ class LRItem:
 
     def __init__(self, p: Production, n: int) -> None:
         self.name: str = p.name
-        self.prod: tuple[str, ...] = p.prod[:n] + (".",) + p.prod[n:]
+        self.prod: tuple[str, ...] = (*p.prod[:n], ".", *p.prod[n:])
         self.number: int = p.number
         self.lr_index: int = n
         self.lookaheads: dict[int, set[str]] = {}
         self.len: int = len(self.prod)
         self.usyms: set[str] = p.usyms
 
-        self.lr_next: _t.Optional[LRItem] = None
+        self.lr_next: LRItem | None = None
         self.lr_after: list[Production] = []
-        self.lr_before: _t.Optional[str] = None
+        self.lr_before: str | None = None
 
     def __str__(self) -> str:
         if self.prod:
@@ -511,7 +511,7 @@ class Grammar:
         self.Follow: dict[str, set[str]] = {}
         self.Precedence: dict[str, tuple[str, int]] = {}
         self.UsedPrecedence: set[str] = set()
-        self.Start: _t.Optional[str] = None
+        self.Start: str | None = None
 
     def __len__(self) -> int:
         return len(self.Productions)
@@ -657,7 +657,7 @@ class Grammar:
 
     def set_start(
         self,
-        start: _t.Optional[_t.Union[_t.Callable[..., _t.Any], str]] = None,
+        start: _t.Callable[..., _t.Any] | str | None = None,
         *,
         name_aliases: dict[str, list[str]],
     ) -> None:
@@ -1007,8 +1007,8 @@ class LRTable:
         self.lr_productions = grammar.Productions  # Copy of grammar Production array
         # Cache of computed gotos
         self.lr_goto_cache: dict[
-            _t.Union[tuple[int, str], str],
-            _t.Union[list[LRItem], dict[_t.Union[int, str], list[LRItem]]],
+            tuple[int, str] | str,
+            list[LRItem] | dict[int | str, list[LRItem]],
         ] = {}
         self.lr0_cidhash: dict[int, int] = {}  # Cache of closures
         self._add_count: int = 0  # Internal counter used to detect cycles
@@ -1065,7 +1065,7 @@ class LRTable:
 
         return J
 
-    def lr0_goto(self, I: list[LRItem], x: str) -> _t.Optional[list[LRItem]]:
+    def lr0_goto(self, I: list[LRItem], x: str) -> list[LRItem] | None:
         """Compute the LR(0) goto function goto(I,X).
 
         Parameters
@@ -1474,7 +1474,7 @@ class LRTable:
             descrip: list[str] = []
             # Loop over each production in I
             actlist: list[tuple[str, LRItem, str]] = []  # List of actions
-            st_action: dict[str, _t.Optional[int]] = {}
+            st_action: dict[str, int | None] = {}
             st_actionp: dict[str, LRItem] = {}  # Action production array (temporary)
             st_goto: dict[str, int] = {}
 
@@ -1684,7 +1684,7 @@ def _collect_grammar_rules(na_state: NameAliasesState, func: _t.Callable[..., _t
     """Collect grammar rules from a function (or class docstring)."""
 
     grammar: list[_RawGrammarRule] = []
-    curr_func: _t.Optional[_t.Callable[..., _t.Any]] = func
+    curr_func: _t.Callable[..., _t.Any] | None = func
     while curr_func:
         prodname = curr_func.__name__
         unwrapped = _inspect_unwrap(curr_func)
@@ -1976,8 +1976,8 @@ class ParserMeta(type):
         return super().__new__(cls, name, bases, namespace, **kwargs)
 
 
-_ConcreteSeqOfStr: _t.TypeAlias = "_t.Union[list[str], tuple[str, ...]]"
-_NestedConcreteSeqOfStr: _t.TypeAlias = "_t.Union[list[_ConcreteSeqOfStr], tuple[_ConcreteSeqOfStr, ...]]"
+_ConcreteSeqOfStr: _t.TypeAlias = "list[str] | tuple[str, ...]"
+_NestedConcreteSeqOfStr: _t.TypeAlias = "list[_ConcreteSeqOfStr] | tuple[_ConcreteSeqOfStr, ...]"
 
 
 class Parser(metaclass=ParserMeta):
@@ -2013,7 +2013,7 @@ class Parser(metaclass=ParserMeta):
     log: _t.ClassVar[_t.LoggerLike] = SlyLogger(sys.stderr)
     """Logging object where debugging/diagnostic messages are sent."""
 
-    debugfile: _t.ClassVar[_t.Optional[str]] = None
+    debugfile: _t.ClassVar[str | None] = None
     """Debugging filename where parsetab.out data can be written."""
 
     track_positions: _t.ClassVar[bool] = True
@@ -2031,7 +2031,7 @@ class Parser(metaclass=ParserMeta):
     def __init__(self) -> None:
         # ---- Public interface
         self.token_stream: _t.Iterator[Token] = MISSING
-        self.lookahead: _t.Optional[_t.Union[Token, YaccSymbol]] = None
+        self.lookahead: Token | YaccSymbol | None = None
 
         # ---- Internal state
         # Error status
@@ -2043,9 +2043,9 @@ class Parser(metaclass=ParserMeta):
         # Stack of grammar symbols
         self.symstack: list[YaccSymbol] = [YaccSymbol("$end")]
         # Position tracker: id -> lineno
-        self._line_positions: dict[int, _t.Optional[int]] = {}
+        self._line_positions: dict[int, int | None] = {}
         # Position tracker: id -> (start, end)
-        self._index_positions: dict[int, tuple[_t.Optional[int], _t.Optional[int]]] = {}
+        self._index_positions: dict[int, tuple[int | None, int | None]] = {}
         # Current production
         self.production: Production = MISSING
 
@@ -2056,7 +2056,7 @@ class Parser(metaclass=ParserMeta):
         cls._build(vars(cls).copy())
 
     @classmethod
-    def __validate_tokens(cls) -> _t.Optional[str]:
+    def __validate_tokens(cls) -> str | None:
         """Validate the tokens attribute and if that fails, return a string description of why."""
 
         if not hasattr(cls, "tokens"):
@@ -2071,7 +2071,7 @@ class Parser(metaclass=ParserMeta):
         return None
 
     @classmethod
-    def __validate_precedence(cls) -> _t.Optional[str]:
+    def __validate_precedence(cls) -> str | None:
         """Validate the precedence attribute and if that fails, return a string description of why."""
 
         if not hasattr(cls, "precedence"):
@@ -2099,7 +2099,7 @@ class Parser(metaclass=ParserMeta):
         return None
 
     @classmethod
-    def __validate_specification(cls) -> _t.Optional[str]:
+    def __validate_specification(cls) -> str | None:
         """Validate various parts of the grammar specification."""
 
         return cls.__validate_tokens() or cls.__validate_precedence()
@@ -2244,7 +2244,7 @@ class Parser(metaclass=ParserMeta):
     # This is the parsing runtime that users use.
     # ----------------------------------------------------------------------
 
-    def error(self, token: _t.Optional[_t.Union[Token, YaccSymbol]]) -> _t.Optional[Token]:
+    def error(self, token: Token | YaccSymbol | None) -> Token | None:
         """Default error handling function. This may be overridden in subclasses."""
 
         if token:
@@ -2275,7 +2275,7 @@ class Parser(metaclass=ParserMeta):
         # Current lookahead symbol
         self.lookahead = None
         # Stack of lookahead symbols
-        lookaheadstack: list[_t.Union[Token, YaccSymbol]] = []
+        lookaheadstack: list[Token | YaccSymbol] = []
 
         # Local references (to avoid lookup on self).
         # Action table
@@ -2471,7 +2471,7 @@ class Parser(metaclass=ParserMeta):
             msg = "sly: internal parser error!!!\n"
             raise RuntimeError(msg)
 
-    def line_position(self, value: object) -> _t.Optional[int]:
+    def line_position(self, value: object) -> int | None:
         """Get the line number of any object returned by one of the various methods in the parser definition.
 
         Typically, it would be a AST node.
@@ -2483,7 +2483,7 @@ class Parser(metaclass=ParserMeta):
 
         return self._line_positions[id(value)]
 
-    def index_position(self, value: object) -> tuple[_t.Optional[int], _t.Optional[int]]:
+    def index_position(self, value: object) -> tuple[int | None, int | None]:
         """Get a (start, end) index pair of any object returned by one of the various methods in the parser definition.
 
         Typically, it would be a AST node.

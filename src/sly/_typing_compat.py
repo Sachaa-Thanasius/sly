@@ -41,9 +41,7 @@ __all__ = (
     "ClassVar",
     "Final",
     "Literal",
-    "Optional",
     "TextIO",
-    "Union",
     # Imported, with version-dependent handling.
     "TypeAlias",
     "Self",
@@ -66,17 +64,10 @@ def __getattr__(name: str, /) -> object:
 
         return globals()[name]
 
-    if name in {"Any", "ClassVar", "Final", "Literal", "Optional", "Union"}:
-        global Any, ClassVar, Final, Literal, Optional, TextIO, Union
+    if name in {"Any", "ClassVar", "Final", "Literal", "TypeAlias"}:
+        global Any, ClassVar, Final, Literal, TextIO, TypeAlias
 
-        from typing import Any, ClassVar, Final, Literal, Optional, TextIO, Union
-
-        return globals()[name]
-
-    if name == "TypeAlias" and sys.version_info >= (3, 10):
-        global TypeAlias
-
-        from typing import TypeAlias
+        from typing import Any, ClassVar, Final, Literal, TextIO, TypeAlias
 
         return globals()[name]
 
@@ -118,15 +109,6 @@ def __dir__() -> list[str]:
     return sorted(set(globals()).union(__all__))
 
 
-# TypeAlias: Below 3.10, create a placeholder.
-if TYPE_CHECKING:
-    from typing_extensions import TypeAlias
-elif sys.version_info < (3, 10):  # pragma: <3.10 cover
-
-    class TypeAlias(metaclass=_PlaceholderMeta):
-        _source_module = "typing"
-
-
 # Self: Below 3.11, create a placeholder.
 if TYPE_CHECKING:
     from typing_extensions import Self
@@ -141,10 +123,10 @@ if TYPE_CHECKING:
     from typing import final
 else:
 
-    def final(f: object) -> object:
+    def final(f: object) -> object:  # pragma: no cover  # Tested in stdlib.
         try:
             f.__final__ = True
-        except (AttributeError, TypeError):  # pragma: no cover
+        except (AttributeError, TypeError):
             # Skip the attributes silently if they are not writable.
             # AttributeError happens if the object has __slots__ or a
             # read-only property, TypeError if it's a builtin class.

@@ -1,4 +1,4 @@
-# region License
+# region -------- License --------
 # -----------------------------------------------------------------------------
 # sly: lex.py
 #
@@ -210,7 +210,7 @@ def _match_action_decorator(pattern: str, *extra: str) -> _t.Callable[[_t.Callab
     return decorate
 
 
-_TokenMatchAction: _t.TypeAlias = "_t.Callable[[Lexer, Token], _t.Optional[Token]]"
+_TokenMatchAction: _t.TypeAlias = "_t.Callable[[Lexer, Token], Token | None]"
 
 
 class LexerMeta(type):
@@ -276,7 +276,7 @@ class Lexer(metaclass=LexerMeta):
 
     # ---- Internal attributes
     # These two are created by _build(), which is called in __init_subclass__().
-    _rules: _t.ClassVar[list[tuple[str, _t.Union[str, _TokenMatchAction]]]]
+    _rules: _t.ClassVar[list[tuple[str, str | _TokenMatchAction]]]
     _master_re: _t.ClassVar[re.Pattern[str]]
 
     _token_names: _t.ClassVar[set[str]] = set()
@@ -500,7 +500,7 @@ class Lexer(metaclass=LexerMeta):
 
         return self
 
-    def error(self, t: Token) -> _t.Optional[Token]:
+    def error(self, t: Token) -> Token | None:
         """Default implementation of the error handler. This may be overridden in subclasses."""
 
         msg = f"Illegal character {t.value[0]!r} at index {self.index}."
