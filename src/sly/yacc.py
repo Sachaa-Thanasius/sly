@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import sys
 from collections import Counter, defaultdict, deque
+from collections.abc import Callable, Collection, Generator, Iterator
 from itertools import count
 
 from . import _typing_compat as _t
@@ -51,7 +52,7 @@ __all__ = ("Parser",)
 class _Missing:
     __slots__ = ()
 
-    def __repr__(self) -> str:
+    def __repr__(self, /) -> str:
         return "<MISSING>"
 
 
@@ -59,7 +60,7 @@ MISSING: _t.Final[_t.Any] = _Missing()
 """Internal sentinel."""
 
 
-def _inspect_unwrap(func: _t.Callable[..., _t.Any]) -> _t.Any:  # pragma: no cover
+def _inspect_unwrap(func: Callable[..., _t.Any]) -> _t.Any:  # pragma: no cover
     """A adapted version of `inspect.unwrap()` to avoid depending on `inspect` at runtime.
 
     See the original docstring below:
@@ -73,10 +74,13 @@ def _inspect_unwrap(func: _t.Callable[..., _t.Any]) -> _t.Any:  # pragma: no cov
     """
 
     f = func  # remember the original func for error reporting
+
     # Memoise by id to tolerate non-hashable objects, but store objects to
     # ensure they aren't destroyed, which would allow their IDs to be reused.
     memo = {id(f): f}
+
     recursion_limit = sys.getrecursionlimit()
+
     while not isinstance(func, type) and hasattr(func, "__wrapped__"):
         func = func.__wrapped__  # pyright: ignore [reportFunctionMemberAccess]
         id_func = id(func)
@@ -84,6 +88,7 @@ def _inspect_unwrap(func: _t.Callable[..., _t.Any]) -> _t.Any:  # pragma: no cov
             msg = f"wrapper loop when unwrapping {f!r}"
             raise ValueError(msg)
         memo[id_func] = func
+
     return func
 
 
@@ -136,7 +141,7 @@ class YaccSymbol:
         Ending lex position.
     """
 
-    __slots__ = ("type", "value", "lineno", "index", "end")
+    __slots__ = __match_args__ = ("type", "value", "lineno", "index", "end")
 
     def __init__(
         self,
@@ -152,10 +157,10 @@ class YaccSymbol:
         self.index: int | None = index
         self.end: int | None = end
 
-    def __str__(self) -> str:
+    def __str__(self, /) -> str:
         return self.type
 
-    def __repr__(self) -> str:
+    def __repr__(self, /) -> str:
         return str(self)
 
 
@@ -174,11 +179,11 @@ class YaccProduction:
 
     def __init__(self, s: list[YaccSymbol], stack: list[YaccSymbol] | None = None) -> None:
         self._slice: list[YaccSymbol] = s
-        self._namemap: dict[str, _t.Callable[[list[YaccSymbol]], _t.Any]] = {}
+        self._namemap: dict[str, Callable[[list[YaccSymbol]], _t.Any]] = {}
         self._stack: list[YaccSymbol] = stack if (stack is not None) else []
 
     @property
-    def lineno(self) -> int:
+    def lineno(self, /) -> int:
         """`int`: The line number of the given item.
 
         Raises
@@ -194,7 +199,7 @@ class YaccProduction:
         raise AttributeError(msg)
 
     @property
-    def index(self) -> int:
+    def index(self, /) -> int:
         for tok in self._slice:
             if tok.index is not None:
                 return tok.index
@@ -202,7 +207,7 @@ class YaccProduction:
         raise AttributeError(msg)
 
     @property
-    def end(self) -> int | None:
+    def end(self, /) -> int | None:
         return next((tok.end for tok in reversed(self._slice) if tok.end), None)
 
     def __getitem__(self, index: int, /) -> _t.Any:
@@ -217,7 +222,7 @@ class YaccProduction:
         else:
             self._stack[n].value = value
 
-    def __len__(self) -> int:
+    def __len__(self, /) -> int:
         return len(self._slice)
 
     def __getattr__(self, name: str, /) -> _t.Any:
@@ -251,7 +256,7 @@ class Production:
         A list of symbols on the right side, e.g. ("expr", "PLUS", "term").
     prec: tuple[str, int]
         Production precedence level.
-    func: _t.Callable[[Parser, YaccProduction], _t.Any]
+    func: Callable[[Parser, YaccProduction], _t.Any]
         Function that executes on reduce.
     file: str
         File where production function is defined.
@@ -285,7 +290,7 @@ class Production:
         number: int,
         name: str,
         prod: list[str],
-        func: _t.Callable[[Parser, YaccProduction], _t.Any],
+        func: Callable[[Parser, YaccProduction], _t.Any],
         precedence: tuple[str, int] = ("right", 0),
         file: str = "",
         line: int = 0,
@@ -295,7 +300,7 @@ class Production:
         self.name: str = name
         self.prod: tuple[str, ...] = tuple(prod)
         self.number: int = number
-        self.func: _t.Callable[[Parser, YaccProduction], _t.Any] = func
+        self.func: Callable[[Parser, YaccProduction], _t.Any] = func
         self.file: str = file
         self.line: int = line
         self.prec: tuple[str, int] = precedence
@@ -316,7 +321,7 @@ class Production:
 
         # Now, walk through the names and generate accessor functions
         nameuse: Counter[str] = Counter()
-        namemap: dict[str, _t.Callable[[list[YaccSymbol]], _t.Any]] = {}
+        namemap: dict[str, Callable[[list[YaccSymbol]], _t.Any]] = {}
         for index, key in enumerate(self.prod):
             if namecount[key] > 1:
                 k = f"{key}{nameuse[key]}"
@@ -353,7 +358,7 @@ class Production:
 
         self.reduced: int = 0
 
-    def __str__(self) -> str:
+    def __str__(self, /) -> str:
         if self.prod:
             s = f"{self.name} -> {' '.join(self.prod)}"
         else:
@@ -364,10 +369,10 @@ class Production:
 
         return s
 
-    def __repr__(self) -> str:
+    def __repr__(self, /) -> str:
         return f"{self.__class__.__name__}({self})"
 
-    def __len__(self) -> int:
+    def __len__(self, /) -> int:
         return len(self.prod)
 
     def __getitem__(self, index: int, /) -> str:
@@ -450,14 +455,14 @@ class LRItem:
         self.lr_after: list[Production] = []
         self.lr_before: str | None = None
 
-    def __str__(self) -> str:
+    def __str__(self, /) -> str:
         if self.prod:
             s = f"{self.name} -> {' '.join(self.prod)}"
         else:
             s = f"{self.name} -> <empty>"
         return s
 
-    def __repr__(self) -> str:
+    def __repr__(self, /) -> str:
         return f"{self.__class__.__name__}({self})"
 
 
@@ -500,7 +505,7 @@ class Grammar:
         Starting symbol for the grammar.
     """
 
-    def __init__(self, terminals: _t.Collection[str]) -> None:
+    def __init__(self, terminals: Collection[str]) -> None:
         # Reserve the first entry in Productions for a start symbol (see set_start()).
         self.Productions: list[Production] = [None]  # pyright: ignore [reportAttributeAccessIssue]
         self.Prodnames: dict[str, list[Production]] = {}
@@ -513,7 +518,7 @@ class Grammar:
         self.UsedPrecedence: set[str] = set()
         self.Start: str | None = None
 
-    def __len__(self) -> int:
+    def __len__(self, /) -> int:
         return len(self.Productions)
 
     def __getitem__(self, index: int, /) -> Production:
@@ -555,7 +560,7 @@ class Grammar:
         self,
         prodname: str,
         syms: list[str],
-        func: _t.Callable[[Parser, YaccProduction], _t.Any],
+        func: Callable[[Parser, YaccProduction], _t.Any],
         file: str = "",
         line: int = 0,
         *,
@@ -573,7 +578,7 @@ class Grammar:
         syms: list[str]
             The list of symbols representing the production, e.g. ["expr", "PLUS", "term"] for the rule
             ``expr : expr PLUS term``.
-        func: _t.Callable[[Parser, YaccProduction], _t.Any]
+        func: Callable[[Parser, YaccProduction], _t.Any]
             The action function.
 
         Raises
@@ -657,7 +662,7 @@ class Grammar:
 
     def set_start(
         self,
-        start: _t.Callable[..., _t.Any] | str | None = None,
+        start: Callable[..., _t.Any] | str | None = None,
         *,
         name_aliases: dict[str, list[str]],
     ) -> None:
@@ -877,7 +882,7 @@ class Grammar:
                 lastlri = lri
             p.lr_items = lr_items
 
-    def __str__(self) -> str:
+    def __str__(self, /) -> str:
         """Return str(self).
 
         Notes
@@ -918,8 +923,8 @@ class Grammar:
 # ============================================================================
 
 
-_RelationFunction: _t.TypeAlias = "_t.Callable[[tuple[int, str]], list[tuple[int, str]]]"
-_SetValuedFunction: _t.TypeAlias = "_t.Callable[[tuple[int, str]], set[str]]"
+_RelationFunction: _t.TypeAlias = "Callable[[tuple[int, str]], list[tuple[int, str]]]"
+_SetValuedFunction: _t.TypeAlias = "Callable[[tuple[int, str]], set[str]]"
 
 
 def digraph(
@@ -1624,7 +1629,7 @@ class LRTable:
             goto[st] = st_goto
             self.state_descriptions[st] = "\n".join(descrip)
 
-    def __str__(self) -> str:
+    def __str__(self, /) -> str:
         """Return str(self).
 
         Notes
@@ -1659,7 +1664,7 @@ class LRTable:
         return "\n".join(out)
 
 
-_RawGrammarRule: _t.TypeAlias = "tuple[_t.Callable[..., _t.Any], str, int, str, list[str]]"
+_RawGrammarRule: _t.TypeAlias = "tuple[Callable[..., _t.Any], str, int, str, list[str]]"
 
 
 class NameAliasesState:
@@ -1675,17 +1680,22 @@ class NameAliasesState:
 
     __slots__ = ("gen_count", "aliases")
 
-    def __init__(self):
+    def __init__(self, /):
         self.gen_count: int = 0
         self.aliases: dict[str, list[str]] = {}
 
+    def create_basename(self, symbols: list[str]) -> str:
+        self.gen_count += 1
+        return f"_{self.gen_count}_" + "_".join(_sanitize_symbols(symbols))
 
-def _collect_grammar_rules(na_state: NameAliasesState, func: _t.Callable[..., _t.Any]) -> list[_RawGrammarRule]:
+
+def _collect_grammar_rules(na_state: NameAliasesState, func: Callable[..., _t.Any]) -> list[_RawGrammarRule]:
     """Collect grammar rules from a function (or class docstring)."""
 
     grammar: list[_RawGrammarRule] = []
-    curr_func: _t.Callable[..., _t.Any] | None = func
-    while curr_func:
+    curr_func: Callable[..., _t.Any] | None = func
+
+    while curr_func is not None:
         prodname = curr_func.__name__
         unwrapped = _inspect_unwrap(curr_func)
         filename: str = unwrapped.__code__.co_filename
@@ -1774,7 +1784,7 @@ def _replace_ebnf_choice(na_state: NameAliasesState, syms: list[str]) -> tuple[l
     return syms, newprods
 
 
-def _sanitize_symbols(symbols: list[str]) -> _t.Generator[str]:
+def _sanitize_symbols(symbols: list[str]) -> Generator[str]:
     for sym in symbols:
         if sym.startswith("'"):
             yield hex(ord(sym[1]))
@@ -1782,11 +1792,6 @@ def _sanitize_symbols(symbols: list[str]) -> _t.Generator[str]:
             yield sym
         else:
             yield sym.encode("utf-8").hex()
-
-
-def _create_basename(na_state: NameAliasesState, symbols: list[str]) -> str:
-    na_state.gen_count += 1
-    return f"_{na_state.gen_count}_" + "_".join(_sanitize_symbols(symbols))
 
 
 def _generate_repeat_rules(na_state: NameAliasesState, symbols: list[str]) -> tuple[str, list[_RawGrammarRule]]:
@@ -1812,7 +1817,7 @@ def _generate_repeat_rules(na_state: NameAliasesState, symbols: list[str]) -> tu
             return [ p.symbols ]
     """
 
-    basename = _create_basename(na_state, symbols)
+    basename = na_state.create_basename(symbols)
 
     name = f"{basename}_repeat"
     oname = f"{basename}_items"
@@ -1871,7 +1876,7 @@ def _generate_optional_rules(na_state: NameAliasesState, symbols: list[str]) -> 
             return None
     """
 
-    basename = _create_basename(na_state, symbols)
+    basename = na_state.create_basename(symbols)
 
     name = f"{basename}_optional"
     symtext = " ".join(symbols)
@@ -1907,7 +1912,7 @@ def _generate_choice_rules(na_state: NameAliasesState, symbols: list[str]) -> tu
             return p[0]
     """
 
-    basename = _create_basename(na_state, symbols)
+    basename = na_state.create_basename(symbols)
 
     name = f"{basename}_choice"
 
@@ -1952,7 +1957,7 @@ class ParserMetaDict(dict[str, object]):
             raise KeyError(key)
 
 
-def _rules_decorator(rule: str, *extra: str) -> _t.Callable[[_t.CallableT], _t.CallableT]:
+def _rules_decorator(rule: str, *extra: str) -> Callable[[_t.CallableT], _t.CallableT]:
     rules = [rule, *extra]
 
     def decorate(func: _t.CallableT) -> _t.CallableT:
@@ -1985,9 +1990,9 @@ class Parser(metaclass=ParserMeta):
 
     Attributes
     ----------
-    token_stream: _t.Iterator[Token]
+    token_stream: Iterator[Token]
         Input tokens.
-    lookahead: _t.Optional[_t.Union[Token, YaccSymbol]]
+    lookahead: Token | YaccSymbol | None
         Current lookahead symbol. Be careful with this.
     """
 
@@ -2028,9 +2033,9 @@ class Parser(metaclass=ParserMeta):
     expected_reduce_reduce: _t.ClassVar[int] = 0
     """The exact number of reduce-reduce conflicts to not report."""
 
-    def __init__(self) -> None:
+    def __init__(self, /) -> None:
         # ---- Public interface
-        self.token_stream: _t.Iterator[Token] = MISSING
+        self.token_stream: Iterator[Token] = iter(())
         self.lookahead: Token | YaccSymbol | None = None
 
         # ---- Internal state
@@ -2105,7 +2110,7 @@ class Parser(metaclass=ParserMeta):
         return cls.__validate_tokens() or cls.__validate_precedence()
 
     @classmethod
-    def __build_grammar(cls, rules: list[tuple[str, _t.Callable[..., _t.Any]]]) -> None:
+    def __build_grammar(cls, rules: list[tuple[str, Callable[..., _t.Any]]]) -> None:
         """Build the grammar from the grammar rules."""
 
         errors: list[str] = []
@@ -2199,7 +2204,7 @@ class Parser(metaclass=ParserMeta):
         return True
 
     @classmethod
-    def __collect_rules(cls, definitions: dict[str, _t.Any]) -> list[tuple[str, _t.Callable[..., _t.Any]]]:
+    def __collect_rules(cls, definitions: dict[str, _t.Any]) -> list[tuple[str, Callable[..., _t.Any]]]:
         """Collect all of the tagged grammar rules."""
 
         return [(name, value) for name, value in definitions.items() if callable(value) and hasattr(value, "rules")]
@@ -2269,7 +2274,7 @@ class Parser(metaclass=ParserMeta):
         self.statestack.append(0)
         self.state = 0
 
-    def parse(self, tokens: _t.Iterator[Token]) -> _t.Any:
+    def parse(self, tokens: Iterator[Token]) -> _t.Any:
         """Parse the given input tokens."""
 
         # Current lookahead symbol

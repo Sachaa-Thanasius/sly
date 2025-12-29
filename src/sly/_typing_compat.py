@@ -12,38 +12,14 @@ from __future__ import annotations
 import sys
 
 
-TYPE_CHECKING = False
-
-
-class _PlaceholderMeta(type):
-    _source_module: str
-
-    def __init__(self, *args: object, **kwargs: object):
-        super().__init__(*args, **kwargs)
-
-        if not hasattr(self, "_source_module"):
-            msg = "A placeholder must indicate the source of the original with a `_source_module` string."
-            raise ValueError(msg)
-
-        self.__doc__ = f"Placeholder for {self._source_module}.{self.__name__}."
-
-    def __repr__(self, /):
-        return f"<import placeholder for {self._source_module}.{self.__name__}>"
-
-
 __all__ = (
     # Imported.
-    "Callable",
-    "Collection",
-    "Generator",
-    "Iterator",
     "Any",
     "ClassVar",
     "Final",
-    "Literal",
     "TextIO",
-    # Imported, with version-dependent handling.
     "TypeAlias",
+    # Imported, with version-dependent handling.
     "Self",
     # Created (custom).
     "CallableT",
@@ -54,43 +30,34 @@ __all__ = (
 )
 
 
+TYPE_CHECKING = False
+
+
 def __getattr__(name: str, /) -> object:
     # Save the imported/created symbols in the global namespace to avoid re-importing/recreating them in the future.
 
-    if name in {"Callable", "Collection", "Generator", "Iterator"}:
-        global Callable, Collection, Generator, Iterator
+    if name in {"Any", "ClassVar", "Final", "TypeAlias"}:
+        global Any, ClassVar, Final, TextIO, TypeAlias
 
-        from collections.abc import Callable, Collection, Generator, Iterator
+        from typing import Any, ClassVar, Final, TextIO, TypeAlias  # noqa: PLC0415
 
-        return globals()[name]
-
-    if name in {"Any", "ClassVar", "Final", "Literal", "TypeAlias"}:
-        global Any, ClassVar, Final, Literal, TextIO, TypeAlias
-
-        from typing import Any, ClassVar, Final, Literal, TextIO, TypeAlias
-
-        return globals()[name]
-
-    if name == "Self" and sys.version_info >= (3, 11):
+    elif name == "Self" and sys.version_info >= (3, 11):  # pragma: >=3.11 cover
         global Self
 
-        from typing import Self
+        from typing import Self  # noqa: PLC0415
 
-        return globals()[name]
-
-    if name == "CallableT":
+    elif name == "CallableT":
         global CallableT
 
-        from collections.abc import Callable
-        from typing import Any, TypeVar
+        from collections.abc import Callable  # noqa: PLC0415
+        from typing import Any, TypeVar  # noqa: PLC0415
 
         CallableT = TypeVar("CallableT", bound=Callable[..., Any])
-        return CallableT
 
-    if name == "LoggerLike":
+    elif name == "LoggerLike":
         global LoggerLike
 
-        from typing import Any, Protocol
+        from typing import Any, Protocol  # noqa: PLC0415
 
         class LoggerLike(Protocol):
             def debug(self, msg: Any, *args: Any, **kwargs: Any) -> None: ...
@@ -99,14 +66,31 @@ def __getattr__(name: str, /) -> object:
             def error(self, msg: Any, *args: Any, **kwargs: Any) -> None: ...
             def critical(self, msg: Any, *args: Any, **kwargs: Any) -> None: ...
 
-        return LoggerLike
+    else:
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg)
 
-    msg = f"module {__name__!r} has no attribute {name!r}"
-    raise AttributeError(msg)
+    return globals()[name]
 
 
 def __dir__() -> list[str]:
     return sorted(set(globals()).union(__all__))
+
+
+class _PlaceholderMeta(type):
+    _source_module: str
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)
+
+        if not hasattr(self, "_source_module"):
+            msg = "A placeholder must indicate the source of the original with a `_source_module` string."
+            raise ValueError(msg)
+
+        self.__doc__ = f"Placeholder for {self._source_module}.{self.__name__}."
+
+    def __repr__(self, /) -> str:
+        return f"<import placeholder for {self._source_module}.{self.__name__}>"
 
 
 # Self: Below 3.11, create a placeholder.

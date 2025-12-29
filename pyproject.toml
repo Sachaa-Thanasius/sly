@@ -228,6 +228,5 @@ reportUninitializedInstanceVariable = "none"   # Occasionally nice as a checkup,
 reportCallInDefaultInitializer = "warning"
 reportImportCycles = "none"                    # Occasionally not a false positive.
 reportPropertyTypeMismatch = "error"
-reportShadowedImports = "error"
 reportUnnecessaryTypeIgnoreComment = "warning"
 reportMissingSuperCall = "none"

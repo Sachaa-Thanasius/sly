@@ -32,5 +32,5 @@ class _RuleDecorator(Protocol):
     def __call__(self, rule: str, *extras: str) -> Callable[[_CallableT], _CallableT]: ...
 
 
-_: Final = cast(_RuleDecorator, object())
+_: Final = cast("_RuleDecorator", object())
 """Typing aid for `@_` within `sly.Lexer` and `sly.Parser` subclasses. Do not import at runtime."""

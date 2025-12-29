@@ -37,6 +37,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Iterator
 
 from . import _typing_compat as _t
 
@@ -94,19 +95,19 @@ class LexerBuildError(Exception):
 class Token:
     """Representation of a single token."""
 
-    __slots__ = ("type", "value", "lineno", "index", "end")
+    __slots__ = __match_args__ = ("type", "value", "lineno", "index", "end")
 
-    def __init__(self, type: str, value: _t.Any, lineno: int, index: int, end: int = -1):  # noqa: A002
+    def __init__(self, type: str, value: _t.Any, lineno: int, index: int, end: int | None = None) -> None:  # noqa: A002
         self.type: str = type
         self.value: _t.Any = value
         self.lineno: int = lineno
         self.index: int = index
-        self.end: int = end
+        self.end: int | None = end
 
-    def __repr__(self):
+    def __repr__(self, /) -> str:
         return (
             f"{self.__class__.__name__}("
-            f"type={self.type!r}, value={self.value!r}, lineno={self.lineno!r}, index={self.index!r}, end={self.end}"
+            f"{self.type!r}, {self.value!r}, lineno={self.lineno!r}, index={self.index!r}, end={self.end}"
             ")"
         )
 
@@ -175,7 +176,7 @@ class LexerMetaDict(dict[str, object]):
                     msg = f"Name {key!r} redefined."
                     raise AttributeError(msg)  # noqa: TRY004
 
-        super().__setitem__(key, value)
+        return super().__setitem__(key, value)
 
     def __delitem__(self, key: str, /) -> None:
         self.delete.append(key)
@@ -191,7 +192,7 @@ class LexerMetaDict(dict[str, object]):
             raise KeyError(key)
 
 
-def _match_action_decorator(pattern: str, *extra: str) -> _t.Callable[[_t.CallableT], _t.CallableT]:
+def _match_action_decorator(pattern: str, *extra: str) -> Callable[[_t.CallableT], _t.CallableT]:
     patterns = [pattern, *extra]
 
     def decorate(func: _t.CallableT) -> _t.CallableT:
@@ -210,7 +211,7 @@ def _match_action_decorator(pattern: str, *extra: str) -> _t.Callable[[_t.Callab
     return decorate
 
 
-_TokenMatchAction: _t.TypeAlias = "_t.Callable[[Lexer, Token], Token | None]"
+_TokenMatchAction: _t.TypeAlias = Callable[["Lexer", Token], Token | None]
 
 
 class LexerMeta(type):
@@ -258,7 +259,7 @@ class Lexer(metaclass=LexerMeta):
 
     __slots__ = ("text", "index", "lineno", "_mark_stack", "__state_stack")
 
-    # ---- Public class attributes.
+    # ---- Public class attributes
     tokens: _t.ClassVar[set[str]] = set()
     """Set of token names. Must be defined in a subclass."""
 
@@ -439,7 +440,7 @@ class Lexer(metaclass=LexerMeta):
         self._mark_stack: list[tuple[int, int]] = []
         self.__state_stack: list[type[Lexer]] = []
 
-    def __iter__(self, /):
+    def __iter__(self, /) -> _t.Self:
         return self
 
     def __next__(self, /) -> Token:
@@ -457,8 +458,8 @@ class Lexer(metaclass=LexerMeta):
             if m := self._master_re.match(self.text, self.index):
                 assert m.lastgroup is not None, "There should always be a matched named group."
 
-                tok = Token(m.lastgroup, m.group(), self.lineno, self.index, m.end())
-                self.index = tok.end
+                tok = Token(m.lastgroup, m.group(), self.lineno, self.index)
+                self.index = tok.end = m.end()
 
                 if tok.type in self._remapping:
                     tok.type = self._remapping[tok.type].get(tok.value, tok.type)
@@ -488,10 +489,7 @@ class Lexer(metaclass=LexerMeta):
                     tok.end = self.index
                     return tok
 
-        msg = "Should be unreachable."
-        raise RuntimeError(msg)
-
-    def tokenize(self, text: str, lineno: int = 1, index: int = 0) -> _t.Iterator[Token]:
+    def tokenize(self, text: str, lineno: int = 1, index: int = 0) -> Iterator[Token]:
         """Tokenize the given text."""
 
         self.text = text
