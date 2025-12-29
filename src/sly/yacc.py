@@ -105,7 +105,7 @@ class SlyLogger:
     information, they can create their own logging object and pass it into SLY.
     """
 
-    def __init__(self, f: _t.TextIO) -> None:
+    def __init__(self, f: _t.Writer[str]) -> None:
         self.f = f
 
     def debug(self, msg: str, *args: object, **kwargs: object) -> None:

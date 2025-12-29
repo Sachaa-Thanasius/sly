@@ -17,8 +17,8 @@ __all__ = (
     "Any",
     "ClassVar",
     "Final",
-    "TextIO",
     "TypeAlias",
+    "Writer",
     # Imported, with version-dependent handling.
     "Self",
     # Created (custom).
@@ -37,14 +37,30 @@ def __getattr__(name: str, /) -> object:
     # Save the imported/created symbols in the global namespace to avoid re-importing/recreating them in the future.
 
     if name in {"Any", "ClassVar", "Final", "TypeAlias"}:
-        global Any, ClassVar, Final, TextIO, TypeAlias
+        global Any, ClassVar, Final, TypeAlias
 
-        from typing import Any, ClassVar, Final, TextIO, TypeAlias  # noqa: PLC0415
+        from typing import Any, ClassVar, Final, TypeAlias  # noqa: PLC0415
 
     elif name == "Self" and sys.version_info >= (3, 11):  # pragma: >=3.11 cover
         global Self
 
         from typing import Self  # noqa: PLC0415
+
+    elif name == "Writer":
+        global Writer
+
+        if sys.version_info >= (3, 14):  # pragma: >=3.14 cover
+            from io import Writer  # noqa: PLC0415
+
+        else:  # pragma: <3.14 cover
+            from typing import Protocol, TypeVar  # noqa: PLC0415
+
+            _T_contra = TypeVar("_T_contra", contravariant=True)
+
+            class Writer(Protocol[_T_contra]):
+                __slots__ = ()
+
+                def write(self, data: _T_contra, /) -> int: ...
 
     elif name == "CallableT":
         global CallableT
@@ -93,7 +109,7 @@ class _PlaceholderMeta(type):
         return f"<import placeholder for {self._source_module}.{self.__name__}>"
 
 
-# Self: Below 3.11, create a placeholder.
+# typing.Self: Below 3.11, create a placeholder.
 if TYPE_CHECKING:
     from typing_extensions import Self
 elif sys.version_info < (3, 11):  # pragma: <3.11 cover
@@ -102,7 +118,7 @@ elif sys.version_info < (3, 11):  # pragma: <3.11 cover
         _source_module = "typing"
 
 
-# final: Used at runtime.
+# typing.final: Used at runtime.
 if TYPE_CHECKING:
     from typing import final
 else:
