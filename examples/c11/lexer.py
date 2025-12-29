@@ -7,7 +7,7 @@ from collections.abc import Generator
 from sly import Lexer
 from sly.lex import LexError, Token, TokenStr
 
-from ._regex_helpers import _constant, _escape_sequence, _identifier, _preprocessing_number
+from ._regex_helpers import constant, escape_sequence, identifier, preprocessing_number
 from .context import CNameContext
 
 
@@ -67,9 +67,9 @@ class CLexer(Lexer):
     def ignore_newline(self, t: Token) -> None:
         self.lineno += len(t.value)
 
-    CONSTANT = _constant
+    CONSTANT = constant
 
-    @_(_preprocessing_number)
+    @_(preprocessing_number)
     def PREPROCESSING_NUMBER(self, t: Token):
         # Not an actual token; results in error.
         self.error(t, "These characters form a preprocessor number, but not a constant.")
@@ -143,7 +143,7 @@ class CLexer(Lexer):
     DOT                     = r"\."
 
     # Identifiers and keywords
-    NAME: TokenStr          = _identifier  # pyright: ignore [reportAssignmentType]
+    NAME: TokenStr          = identifier  # pyright: ignore [reportAssignmentType]
     NAME["auto"]            = AUTO
     NAME["break"]           = BREAK
     NAME["case"]            = CASE
@@ -226,8 +226,11 @@ class CLexer(Lexer):
             msg = f"Illegal character {t.value[0]!r} at index {self.index}."
         raise LexError(msg, t.value, self.index)
 
-    def __init__(self, context: CNameContext):
+    def __init__(self, context: CNameContext | None = None):
         super().__init__()
+
+        if context is None:
+            context = CNameContext()
         self.context = context
 
         self._char_const_start: Token | None = None
@@ -244,7 +247,7 @@ class CCharConstantLexer(Lexer):
 
     tokens = {CHAR_CHAR, INCORRECT_ESCAPE_SEQUENCE, CHAR_CONST_END, MISSING_TERMINATOR}
 
-    ignore_CHAR_CHAR = _escape_sequence
+    ignore_CHAR_CHAR = escape_sequence
 
     @_(r"\\")
     def INCORRECT_ESCAPE_SEQUENCE(self, t: Token):

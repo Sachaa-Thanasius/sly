@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from collections.abc import Generator
 
-from ._regex_helpers import _constant, _escape_sequence, _identifier, _preprocessing_number
+from ._regex_helpers import constant, escape_sequence, identifier, preprocessing_number
 from .context import CNameContext
 from .errors import TokenError
 from .token import Token
@@ -18,7 +18,7 @@ from .token import Token
 
 
 CHAR_CONST_REST_SPEC = [
-    ("CHAR_CHAR",           _escape_sequence),
+    ("CHAR_CHAR",           escape_sequence),
     ("BAD_ESCAPE_SEQ",      r"\\"),
     ("CHAR_CONSTANT_END",   r"'"),
     ("MISSING_TERMINATOR",  r"\n"),
@@ -186,10 +186,10 @@ TOKEN_SPEC = [
     ("IGNORE",                  r"[ \t\v\f\r]+"),
 
     ("NEWLINE",                 r"\n"),
-    ("CONSTANT",                _constant),
+    ("CONSTANT",                constant),
 
     # Not an actual token; results in error.
-    ("preprocessing_number",    _preprocessing_number),
+    ("preprocessing_number",    preprocessing_number),
     # Not an actual token; results in CONSTANT or error.
     ("char_constant",           r"[LuU]?'"),
     # Not the pattern for the actual token; results in STRING_LITERAL or error.
@@ -250,7 +250,7 @@ TOKEN_SPEC = [
     ("DOT",                     r"\."),
 
     # Identifier
-    ("ID",                      _identifier),
+    ("ID",                      identifier),
 
     # Error
     ("ERROR",                   r"."),
@@ -260,7 +260,10 @@ TOKEN_SPEC = [
 TOKEN_REGEX = re.compile("|".join(f"(?P<{tok_name}>{tok_pat})" for tok_name, tok_pat in TOKEN_SPEC))
 
 
-def tokenize(ctx: CNameContext, code: str, /, line_num: int = 1, line_start: int = 0) -> Generator[Token]:
+def tokenize(code: str, /, line_num: int = 1, line_start: int = 0, ctx: CNameContext | None = None) -> Generator[Token]:
+    if ctx is None:
+        ctx = CNameContext()
+
     for mo in TOKEN_REGEX.finditer(code):
         kind = mo.lastgroup
         value = mo.group()

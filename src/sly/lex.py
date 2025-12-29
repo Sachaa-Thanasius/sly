@@ -136,7 +136,7 @@ class TokenStr(str):
 class _Before:
     __slots__ = ("tok", "pattern")
 
-    def __init__(self, tok: str, pattern: str) -> None:
+    def __init__(self, tok: str, pattern: str, /) -> None:
         self.tok = tok
         self.pattern = pattern
 
@@ -154,7 +154,7 @@ class LexerMetaDict(dict[str, object]):
 
     __slots__ = ("before", "delete", "remap")
 
-    def __init__(self) -> None:
+    def __init__(self, /) -> None:
         self.before: dict[str, str] = {}
         self.delete: list[str] = []
         self.remap: dict[tuple[str, str], str] = {}
@@ -229,7 +229,7 @@ class LexerMeta(type):
         del namespace["before"]
 
         # Create attributes for use in the actual class body
-        final_namespace = {str(key): (str(val) if isinstance(val, TokenStr) else val) for key, val in namespace.items()}
+        final_namespace = {key: (str(val) if isinstance(val, TokenStr) else val) for key, val in namespace.items()}
         return super().__new__(cls, name, bases, final_namespace, **kwargs)
 
     def __init__(self, name: str, bases: tuple[type, ...], namespace: LexerMetaDict, /, **kwargs: _t.Any) -> None:

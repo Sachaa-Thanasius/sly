@@ -39,7 +39,6 @@ from __future__ import annotations
 import sys
 from collections import Counter, defaultdict, deque
 from collections.abc import Callable, Collection, Generator, Iterator
-from itertools import count
 
 from . import _typing_compat as _t
 from .lex import Token
@@ -874,12 +873,14 @@ class Grammar:
         for p in self.Productions:
             lastlri = p
             lr_items: list[LRItem] = []
-            for i in count():
+            i = 0
+            while True:
                 lastlri.lr_next = lri = p.lr_item(i, self.Prodnames)
                 if not lri:
                     break
                 lr_items.append(lri)
                 lastlri = lri
+                i += 1
             p.lr_items = lr_items
 
     def __str__(self, /) -> str:
@@ -1131,7 +1132,7 @@ class LRTable:
         # Loop over the items in C and each grammar symbols
         for I in C:
             # Collect all of the symbols that could possibly be in the goto(I,X) sets
-            asyms: set[str] = set().union(*[ii.usyms for ii in I])
+            asyms: set[str] = set().union(*[ii.usyms for ii in I]) # pyright: ignore[reportUnknownVariableType]
 
             for x in asyms:
                 g = self.lr0_goto(I, x)
@@ -1704,7 +1705,7 @@ def _collect_grammar_rules(na_state: NameAliasesState, func: Callable[..., _t.An
         # Pre-condition: .rules exists.
         func_rules: list[str] = curr_func.rules  # pyright: ignore [reportFunctionMemberAccess]
 
-        for rule, lineno in zip(func_rules, range(lineno_start + len(func_rules) - 1, 0, -1)):
+        for rule, lineno in zip(func_rules, range(lineno_start + len(func_rules) - 1, 0, -1), strict=False):
             syms = rule.split()
             ebnf_prod: list[_RawGrammarRule] = []
 

@@ -9,7 +9,7 @@ _nondigit = r"[a-zA-Z_]"
 _universal_character_name = rf"\\u{_hexadecimal_digit}{{4}}|\\U{_hexadecimal_digit}{{8}}"
 
 _identifier_nondigit = rf"{_nondigit}|({_universal_character_name})"
-_identifier = rf"({_identifier_nondigit})(({_identifier_nondigit})|{_digit})*"
+identifier = rf"({_identifier_nondigit})(({_identifier_nondigit})|{_digit})*"
 
 
 # Integer constants
@@ -83,7 +83,7 @@ _hexadecimal_floating_constant = "|".join(
 
 # Constants
 
-_constant = "|".join(
+constant = "|".join(
     (
         rf"({_integer_constant})",
         rf"({_decimal_floating_constant})",
@@ -94,7 +94,7 @@ _constant = "|".join(
 
 # Preprocessing numbers
 
-_preprocessing_number = r"\.?[0-9]([0-9A-Za-z_\.]|[eEpP][+-])*"
+preprocessing_number = r"\.?[0-9]([0-9A-Za-z_\.]|[eEpP][+-])*"
 
 
 # Character and string constants
@@ -102,7 +102,7 @@ _preprocessing_number = r"\.?[0-9]([0-9A-Za-z_\.]|[eEpP][+-])*"
 _simple_escape_sequence = r"""\\['"?\\abfnrtv]"""
 _octal_escape_sequence = rf"\\({_octal_digit}{{1,3}})"
 _hexadecimal_escape_sequence = rf"\\x{_hexadecimal_digit}+"
-_escape_sequence = "|".join(
+escape_sequence = "|".join(
     (
         f"({_simple_escape_sequence})",
         f"({_octal_escape_sequence})",

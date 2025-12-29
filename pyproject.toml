@@ -170,17 +170,17 @@ convention = "numpy"
 
 [tool.ruff.lint.per-file-ignores]
 # ---- Library code
-"**/__init__.py" = [
+"src/sly/__init__.py" = [
     # Ruff doesn't understand using star imports to export names in a package.
     "F403",
     "F405",
 ]
-"src/sly/yacc.py" = [
-    "E741", # Ambiguous names? No, math variable names.
-]
 "src/sly/_typing_compat.py" = [
     "PLW0603", # We update globals via global keyword to cache imported/created typing things.
     "PLC0415", # We import things within __getattr__.
+]
+"src/sly/yacc.py" = [
+    "E741", # Ambiguous names? No, math variable names.
 ]
 
 # ---- Examples and test code

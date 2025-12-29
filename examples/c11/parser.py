@@ -98,7 +98,7 @@ class CParser(Parser):
 
     tokens = CLexer.tokens | {ATOMIC_LPAREN}
 
-    precedence = (
+    precedence = (  # pyright: ignore[reportUnknownVariableType]
         ("left", BARBAR),
         ("left", ANDAND),
         ("left", BAR),
