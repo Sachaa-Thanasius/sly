@@ -18,9 +18,9 @@ __all__ = (
     "ClassVar",
     "Final",
     "TypeAlias",
-    "Writer",
     # Imported, with version-dependent handling.
     "Self",
+    "Writer",
     # Created (custom).
     "CallableT",
     "LoggerLike",
