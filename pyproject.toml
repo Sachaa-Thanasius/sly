@@ -30,12 +30,7 @@ Documentation = "https://sly.readthedocs.io/en/latest/"
 test = ["pytest>=8"]
 cov = ["coverage>=7", "covdefaults"]
 profile = ["yelp-gprof2dot"]
-dev = [
-    "tox>=4.24.1",
-    { include-group = "test" },
-    { include-group = "cov" },
-    { include-group = "profile" },
-]
+dev = ["tox>=4.24.1", { include-group = "test" }, { include-group = "cov" }, { include-group = "profile" }]
 
 
 # -------- Test config --------
@@ -185,6 +180,7 @@ convention = "numpy"
 ]
 "src/sly/_typing_compat.py" = [
     "PLW0603", # We update globals via global keyword to cache imported/created typing things.
+    "PLC0415", # We import things within __getattr__.
 ]
 
 # ---- Examples and test code

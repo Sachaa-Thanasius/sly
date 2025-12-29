@@ -30,6 +30,22 @@ __all__ = (
 )
 
 
+class _PlaceholderMeta(type):
+    _source_module: str
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)
+
+        if not hasattr(self, "_source_module"):
+            msg = "A placeholder must indicate the source of the original with a `_source_module` string."
+            raise ValueError(msg)
+
+        self.__doc__ = f"Placeholder for {self._source_module}.{self.__name__}."
+
+    def __repr__(self, /) -> str:
+        return f"<import placeholder for {self._source_module}.{self.__name__}>"
+
+
 TYPE_CHECKING = False
 
 
@@ -39,21 +55,27 @@ def __getattr__(name: str, /) -> object:
     if name in {"Any", "ClassVar", "Final", "TypeAlias"}:
         global Any, ClassVar, Final, TypeAlias
 
-        from typing import Any, ClassVar, Final, TypeAlias  # noqa: PLC0415
+        from typing import Any, ClassVar, Final, TypeAlias
 
-    elif name == "Self" and sys.version_info >= (3, 11):  # pragma: >=3.11 cover
+    elif name == "Self":
         global Self
 
-        from typing import Self  # noqa: PLC0415
+        if sys.version_info >= (3, 11):  # pragma: >=3.11 cover
+            from typing import Self
+        elif TYPE_CHECKING:
+            from typing_extensions import Self
+        else:  # pragma: <3.11 cover
+
+            class Self(metaclass=_PlaceholderMeta):
+                _source_module = "typing"
 
     elif name == "Writer":
         global Writer
 
         if sys.version_info >= (3, 14):  # pragma: >=3.14 cover
-            from io import Writer  # noqa: PLC0415
-
+            from io import Writer
         else:  # pragma: <3.14 cover
-            from typing import Protocol, TypeVar  # noqa: PLC0415
+            from typing import Protocol, TypeVar
 
             _T_contra = TypeVar("_T_contra", contravariant=True)
 
@@ -65,15 +87,15 @@ def __getattr__(name: str, /) -> object:
     elif name == "CallableT":
         global CallableT
 
-        from collections.abc import Callable  # noqa: PLC0415
-        from typing import Any, TypeVar  # noqa: PLC0415
+        from collections.abc import Callable
+        from typing import Any, TypeVar
 
         CallableT = TypeVar("CallableT", bound=Callable[..., Any])
 
     elif name == "LoggerLike":
         global LoggerLike
 
-        from typing import Any, Protocol  # noqa: PLC0415
+        from typing import Any, Protocol
 
         class LoggerLike(Protocol):
             def debug(self, msg: Any, *args: Any, **kwargs: Any) -> None: ...
@@ -91,31 +113,6 @@ def __getattr__(name: str, /) -> object:
 
 def __dir__() -> list[str]:
     return sorted(set(globals()).union(__all__))
-
-
-class _PlaceholderMeta(type):
-    _source_module: str
-
-    def __init__(self, *args: object, **kwargs: object) -> None:
-        super().__init__(*args, **kwargs)
-
-        if not hasattr(self, "_source_module"):
-            msg = "A placeholder must indicate the source of the original with a `_source_module` string."
-            raise ValueError(msg)
-
-        self.__doc__ = f"Placeholder for {self._source_module}.{self.__name__}."
-
-    def __repr__(self, /) -> str:
-        return f"<import placeholder for {self._source_module}.{self.__name__}>"
-
-
-# typing.Self: Below 3.11, create a placeholder.
-if TYPE_CHECKING:
-    from typing_extensions import Self
-elif sys.version_info < (3, 11):  # pragma: <3.11 cover
-
-    class Self(metaclass=_PlaceholderMeta):
-        _source_module = "typing"
 
 
 # typing.final: Used at runtime.
