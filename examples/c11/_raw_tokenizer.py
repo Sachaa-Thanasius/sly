@@ -6,16 +6,50 @@ Based on the tokenizer example in the Python re docs: https://docs.python.org/3/
 from __future__ import annotations
 
 import re
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 
 from ._regex_helpers import constant, escape_sequence, identifier, preprocessing_number
 from .context import CNameContext
 from .errors import TokenError
-from .token import Token
+
+
+class Token:
+    """Representation of a single token."""
+
+    __slots__ = ("kind", "value", "lineno", "column")
+
+    def __init__(self, kind: str, value: str, lineno: int, column: int, /) -> None:
+        self.kind = kind
+        self.value = value
+        self.lineno = lineno
+        self.column = column
+
+    def __repr__(self, /) -> str:
+        return (
+            f"{self.__class__.__name__}({self.kind!r}, {self.value!r}, lineno={self.lineno!r}, column={self.column!r})"
+        )
+
+
+def _compile_spec(spec: Iterable[tuple[str, str]], /) -> re.Pattern[str]:
+    return re.compile("|".join(f"(?P<{name}>{pat})" for name, pat in spec))
+
+
+def _ensure_kind(kind: str | None) -> str:
+    if kind is None:
+        msg = "The token kind should never be none."
+        raise RuntimeError(msg)
+    return kind
+
+
+def _found_unknown_kind(kind: str) -> None:
+    msg = f"Encountered unknown token kind: {kind!r}"
+    raise RuntimeError(msg)
 
 
 # region -------- Char constant handler --------
 
+
+_MISSING_CHAR_END_TEXT = "Missing terminating ' character."
 
 CHAR_CONST_REST_SPEC = [
     ("CHAR_CHAR",           escape_sequence),
@@ -24,7 +58,7 @@ CHAR_CONST_REST_SPEC = [
     ("MISSING_TERMINATOR",  r"\n"),
 ]  # fmt: skip
 
-CHAR_CONST_REST_REGEX = re.compile("|".join(f"(?P<{tok_name}>{tok_pat})" for tok_name, tok_pat in CHAR_CONST_REST_SPEC))
+CHAR_CONST_REST_REGEX = _compile_spec(CHAR_CONST_REST_SPEC)
 
 
 def _tokenize_char_constant_rest(code: str, /, char_start: int, line_num: int, line_start: int) -> int:
@@ -46,30 +80,24 @@ def _tokenize_char_constant_rest(code: str, /, char_start: int, line_num: int, l
     """
 
     for mo in CHAR_CONST_REST_REGEX.finditer(code, char_start):
-        kind = mo.lastgroup
+        kind = _ensure_kind(mo.lastgroup)
         value = mo.group()
         column = mo.start() - line_start
 
-        if kind is None:
-            msg = "The token kind should never be none."
-            raise RuntimeError(msg)
+        match kind:
+            case "CHAR_CHAR":
+                continue
+            case "BAD_ESCAPE_SEQ":
+                msg = "Incorrect escape sequence."
+                raise TokenError(msg, value, line_num, column)
+            case "CHAR_CONSTANT_END":
+                return mo.end()
+            case "MISSING_TERMINATOR":
+                raise TokenError(_MISSING_CHAR_END_TEXT, value, line_num, column)
+            case _:
+                _found_unknown_kind(kind)
 
-        elif kind == "CHAR_CHAR":
-            continue
-
-        elif kind == "BAD_ESCAPE_SEQ":
-            msg = "Incorrect escape sequence."
-            raise TokenError(msg, value, line_num, column)
-
-        elif kind == "CHAR_CONSTANT_END":
-            return mo.end()
-
-        elif kind == "MISSING_TERMINATOR":
-            msg = "Missing terminating ' character."
-            raise TokenError(msg, value, line_num, column)
-
-    msg = "Missing terminating ' character."
-    raise TokenError(msg, code[char_start:], line_num, char_start - line_start)
+    raise TokenError(_MISSING_CHAR_END_TEXT, code[char_start:], line_num, char_start - line_start)
 
 
 # endregion --------
@@ -78,13 +106,15 @@ def _tokenize_char_constant_rest(code: str, /, char_start: int, line_num: int, l
 # region -------- String literal handler --------
 
 
+_MISSING_STR_END_TEXT = 'Missing terminating " character.'
+
 STR_LIT_REST_SPEC = [
     ("STRING_LITERAL_END",  r'"'),
     ("MISSING_TERMINATOR",  r"\n"),
     ("STRING_CHAR",         r"."),
 ]  # fmt: skip
 
-STR_LIT_REST_REGEX = re.compile("|".join(f"(?P<{tok_name}>{tok_pat})" for tok_name, tok_pat in STR_LIT_REST_SPEC))
+STR_LIT_REST_REGEX = _compile_spec(STR_LIT_REST_SPEC)
 
 
 def _tokenize_str_literal_rest(code: str, /, str_start: int, line_num: int, line_start: int) -> int:
@@ -104,26 +134,21 @@ def _tokenize_str_literal_rest(code: str, /, str_start: int, line_num: int, line
     """
 
     for mo in STR_LIT_REST_REGEX.finditer(code, str_start):
-        kind = mo.lastgroup
+        kind = _ensure_kind(mo.lastgroup)
         value = mo.group()
         column = mo.start() - line_start
 
-        if kind is None:
-            msg = "The token kind should never be none."
-            raise RuntimeError(msg)
+        match kind:
+            case "STRING_LITERAL_END":
+                return mo.end()
+            case "STRING_CHAR":
+                continue
+            case "MISSING_TERMINATOR":
+                raise TokenError(_MISSING_STR_END_TEXT, value, line_num, column)
+            case _:
+                _found_unknown_kind(kind)
 
-        elif kind == "STRING_LITERAL_END":
-            return mo.end()
-
-        elif kind == "STRING_CHAR":
-            continue
-
-        elif kind == "MISSING_TERMINATOR":
-            msg = 'Missing terminating " character.'
-            raise TokenError(msg, value, line_num, column)
-
-    msg = 'Missing terminating " character.'
-    raise TokenError(msg, code[str_start:], line_num, str_start - line_start)
+    raise TokenError(_MISSING_STR_END_TEXT, code[str_start:], line_num, str_start - line_start)
 
 
 # endregion --------
@@ -257,7 +282,7 @@ TOKEN_SPEC = [
 
 ]  # fmt: skip
 
-TOKEN_REGEX = re.compile("|".join(f"(?P<{tok_name}>{tok_pat})" for tok_name, tok_pat in TOKEN_SPEC))
+TOKEN_REGEX = _compile_spec(TOKEN_SPEC)
 
 
 def tokenize(code: str, /, line_num: int = 1, line_start: int = 0, ctx: CNameContext | None = None) -> Generator[Token]:
@@ -265,44 +290,36 @@ def tokenize(code: str, /, line_num: int = 1, line_start: int = 0, ctx: CNameCon
         ctx = CNameContext()
 
     for mo in TOKEN_REGEX.finditer(code):
-        kind = mo.lastgroup
+        kind = _ensure_kind(mo.lastgroup)
         value = mo.group()
         column = mo.start() - line_start
 
-        if kind is None:
-            msg = "The token kind should never be None."
-            raise RuntimeError(msg)
-
-        elif kind == "IGNORE":
-            continue
-
-        elif kind == "NEWLINE":
-            line_start = mo.end()
-            line_num += 1
-            continue
-
-        elif kind == "preprocessing_number":
-            msg = "These characters form a preprocessor number, but not a constant."
-            raise TokenError(msg, value, line_num, column)
-
-        elif kind == "char_constant":
-            char_start = mo.start()
-            char_end = _tokenize_char_constant_rest(code, char_start, line_num, line_start)
-
-            kind = "CONSTANT"
-            value = code[char_start:char_end]
-
-        elif kind == "STRING_LITERAL":
-            str_start = mo.start()
-            str_end = _tokenize_str_literal_rest(code, str_start, line_num, line_start)
-            value = code[str_start:str_end]
-
-        elif kind == "ID":
-            kind = KEYWORDS.get(value, "ID")
-
-        elif kind == "ERROR":
-            msg = f"{value!r} unexpected on line {line_num}"
-            raise TokenError(msg, value, line_num, column)
+        match kind:
+            case "IGNORE":
+                continue
+            case "NEWLINE":
+                line_start = mo.end()
+                line_num += 1
+                continue
+            case "preprocessing_number":
+                msg = "These characters form a preprocessor number, but not a constant."
+                raise TokenError(msg, value, line_num, column)
+            case "char_constant":
+                char_start = mo.start()
+                char_end = _tokenize_char_constant_rest(code, char_start, line_num, line_start)
+                kind = "CONSTANT"
+                value = code[char_start:char_end]
+            case "STRING_LITERAL":
+                str_start = mo.start()
+                str_end = _tokenize_str_literal_rest(code, str_start, line_num, line_start)
+                value = code[str_start:str_end]
+            case "ID":
+                kind = KEYWORDS.get(value, "ID")
+            case "ERROR":
+                msg = f"{value!r} unexpected on line {line_num}"
+                raise TokenError(msg, value, line_num, column)
+            case _:
+                _found_unknown_kind(kind)
 
         yield Token(kind, value, line_num, column)
 

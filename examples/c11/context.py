@@ -1,8 +1,5 @@
-from __future__ import annotations
-
-
 class CNameContext:
-    def __init__(self, *sets: set[str]):
+    def __init__(self, *sets: set[str]) -> None:
         self.sets: list[set[str]] = list(sets) if sets else [set()]
 
     def __contains__(self, key: str, /) -> bool:
@@ -14,8 +11,8 @@ class CNameContext:
     def declare_var_name(self, name: str, /) -> None:
         self.sets[-1].remove(name)
 
-    def save_context(self) -> None:
+    def save_context(self, /) -> None:
         self.sets.append(set())
 
-    def restore_context(self) -> None:
+    def restore_context(self, /) -> None:
         self.sets.pop()
