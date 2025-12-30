@@ -147,12 +147,13 @@ extend-ignore = [
     "RET508", # elif/else after break.
 
     # Other
-    "PLR",    # It's a parser generator; it's going to be complex.
-    "ERA001", # Leave commented code alone.
-    "RUF002", # Leave my en dashes alone.
-    "PTH123", # Builtin open() is fine.
-    "A005",   # Shadowing builtin modules is fine for sly submodules.
-    "TC004",  # Intended usage of sly.types._ violates this.
+    "PLR",     # It's a parser generator; it's going to be complex.
+    "ERA001",  # Leave commented code alone.
+    "RUF002",  # Leave my en dashes alone.
+    "PTH123",  # Builtin open() is fine.
+    "A005",    # Shadowing builtin modules is fine for sly submodules.
+    "TC004",   # Intended usage of sly.types._ violates this.
+    "PLC0415", # Sometimes inline imports make sense.
 ]
 unfixable = [
     "ERA", # Prevent unlikely erroneous deletion.
@@ -177,7 +178,6 @@ convention = "numpy"
 ]
 "src/sly/_typing_compat.py" = [
     "PLW0603", # We update globals via global keyword to cache imported/created typing things.
-    "PLC0415", # We import things within __getattr__.
 ]
 "src/sly/yacc.py" = [
     "E741", # Ambiguous names? No, math variable names.
@@ -210,7 +210,7 @@ convention = "numpy"
 # -------- Type-checker config --------
 
 [tool.pyright]
-include = ["src/sly"]
+include = ["src/sly", "tools"]
 ignore = ["examples/calc*", "examples/schcls.py", "tests"]
 pythonVersion = "3.10"
 pythonPlatform = "All"

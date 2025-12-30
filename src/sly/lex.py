@@ -217,6 +217,10 @@ _TokenMatchAction: _t.TypeAlias = Callable[["Lexer", Token], Token | None]
 class LexerMeta(type):
     """Metaclass for collecting lexing rules."""
 
+    _remap: dict[tuple[str, str], str]
+    _before: dict[str, str]
+    _delete: list[str]
+
     @classmethod
     def __prepare__(cls, name: str, bases: tuple[type, ...], /, **kwargs: _t.Any) -> LexerMetaDict:
         namespace = LexerMetaDict()
@@ -230,15 +234,13 @@ class LexerMeta(type):
 
         # Create attributes for use in the actual class body
         final_namespace = {key: (str(val) if isinstance(val, TokenStr) else val) for key, val in namespace.items()}
-        return super().__new__(cls, name, bases, final_namespace, **kwargs)
-
-    def __init__(self, name: str, bases: tuple[type, ...], namespace: LexerMetaDict, /, **kwargs: _t.Any) -> None:
-        super().__init__(name, bases, namespace, **kwargs)
 
         # Attach various metadata to the class
-        self._remap: dict[tuple[str, str], str] = namespace.remap
-        self._before: dict[str, str] = namespace.before
-        self._delete: list[str] = namespace.delete
+        final_namespace["_remap"] = namespace.remap
+        final_namespace["_before"] = namespace.before
+        final_namespace["_delete"] = namespace.delete
+
+        return super().__new__(cls, name, bases, final_namespace, **kwargs)
 
 
 class Lexer(metaclass=LexerMeta):
@@ -440,7 +442,7 @@ class Lexer(metaclass=LexerMeta):
         self._mark_stack: list[tuple[int, int]] = []
         self.__state_stack: list[type[Lexer]] = []
 
-    def __iter__(self, /) -> _t.Self:
+    def __iter__(self, /):
         return self
 
     def __next__(self, /) -> Token:
@@ -495,6 +497,9 @@ class Lexer(metaclass=LexerMeta):
         self.text = text
         self.lineno = lineno
         self.index = index
+
+        self._mark_stack = []
+        self.__state_stack = []
 
         return self
 
